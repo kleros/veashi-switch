@@ -1,0 +1,38 @@
+{
+  "name": "@kleros/veashi-switch",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "GatewayLightbulb switch UI over the Veashi gateways, on a local two-chain anvil devnet",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -p tsconfig.json --noEmit && vite build",
+    "preview": "vite preview",
+    "check-types": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "test:e2e": "playwright test",
+    "devnet": "bash scripts/devnet.sh",
+    "serve:critique": "bash scripts/serve-critique.sh",
+    "devnet:smoke": "bash scripts/devnet-smoke.sh"
+  },
+  "dependencies": {
+    "@kleros/ui-components-library": "^2.20.0",
+    "@tanstack/react-query": "^5.69.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "react-router-dom": "^6.28.0",
+    "styled-components": "^5.3.3",
+    "viem": "^2.24.1",
+    "wagmi": "^2.14.15"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.63.0",
+    "@types/react": "^18.3.12",
+    "@types/react-dom": "^18.3.1",
+    "@types/styled-components": "^5.1.34",
+    "@vitejs/plugin-react": "^4.3.4",
+    "typescript": "^5.6.3",
+    "vite": "^5.4.11",
+    "vitest": "^2.1.8"
+  }
+}

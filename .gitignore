@@ -1,0 +1,10 @@
+node_modules
+dist
+.devnet/
+public/devnet.json
+test-results/
+playwright-report/
+blob-report/
+contracts/out/
+contracts/cache/
+*.tsbuildinfo
