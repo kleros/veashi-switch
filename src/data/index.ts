@@ -1,6 +1,8 @@
-// Seed stubs so the `pages` lane compiles from day one. The `chain` lane owns this file and replaces every body;
-// the exported names and signatures are frozen for the run (see features/veashi-switch-ui/prd.md, "The seam").
-import type { Config } from "wagmi";
+// The data module the pages read and write through. Exported names and signatures are frozen for the run
+// (see features/veashi-switch-ui/prd.md, "The seam"); the implementation lives in the sibling files.
+import { createConfig, http, injected, mock, type Config, type CreateConnectorFn } from "wagmi";
+import { createChainSwitchData, DEV_ACCOUNT, devnetChains } from "./chain";
+import { parseDevnetEnv } from "./env";
 import type { Address, SwitchData } from "./types";
 
 export * from "./types";
@@ -18,18 +20,41 @@ export interface DevnetEnv {
 
 /** Fetches /devnet.json; rejects with a plain-language error when the devnet is not running. */
 export async function loadDevnetEnv(): Promise<DevnetEnv> {
-  throw new Error("not implemented: the chain lane provides loadDevnetEnv");
+  let response: Response;
+  try {
+    response = await fetch("/devnet.json", { cache: "no-store" });
+  } catch {
+    throw new Error("The local devnet is not running: start it with `yarn devnet`, then reload.");
+  }
+  if (!response.ok) {
+    throw new Error("The local devnet is not running (no devnet.json): start it with `yarn devnet`, then reload.");
+  }
+  let json: unknown;
+  try {
+    json = await response.json();
+  } catch {
+    throw new Error("devnet.json is not valid JSON: restart the devnet with `yarn devnet`.");
+  }
+  return parseDevnetEnv(json);
 }
 
 /** wagmi config for the two devnet chains: the injected connector, plus the test connector when env.testWallet. */
 export function createWagmiConfig(env: DevnetEnv): Config {
-  void env;
-  throw new Error("not implemented: the chain lane provides createWagmiConfig");
+  const chains = devnetChains(parseDevnetEnv(env));
+  const connectors: CreateConnectorFn[] = [injected({ shimDisconnect: true })];
+  // The anvil dev account, unlocked on the devnet: the mock connector forwards eth_sendTransaction to anvil.
+  if (env.testWallet) connectors.push(mock({ accounts: [DEV_ACCOUNT] }));
+  return createConfig({
+    chains: [chains.foreign, chains.home],
+    connectors,
+    transports: {
+      [chains.foreign.id]: http(env.foreign.rpcUrl),
+      [chains.home.id]: http(env.home.rpcUrl),
+    },
+  });
 }
 
 /** The chain-backed SwitchData over viem clients for both devnet chains and the connected wallet. */
 export function createSwitchData(env: DevnetEnv, config: Config): SwitchData {
-  void env;
-  void config;
-  throw new Error("not implemented: the chain lane provides createSwitchData");
+  return createChainSwitchData(parseDevnetEnv(env), config);
 }

@@ -1,0 +1,20 @@
+# Devnet-only forge project: the Yaho/Yaru/reporter/adapter mocks and a mock USDC, plus the repository's gateways,
+# lightbulb and KlerosCoreRuler pulled in through src/Imports.sol (their import closure only, never all of contracts/).
+[profile.default]
+solc = "0.8.30"
+via_ir = true
+optimizer = true
+optimizer_runs = 500
+src = "src"
+out = "out"
+cache_path = "cache"
+libs = ["../../node_modules"]
+allow_paths = ["../../contracts", "../../node_modules"]
+remappings = [
+    "@openzeppelin/=../../node_modules/@openzeppelin/",
+    "@kleros/=../../node_modules/@kleros/",
+    "kleros-v2/=../../contracts/src/",
+]
+
+[lint]
+lint_on_build = false
