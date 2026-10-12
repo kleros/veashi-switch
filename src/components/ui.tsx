@@ -1,12 +1,14 @@
 import React from "react";
-import { Button } from "@kleros/ui-components-library";
+import { Button, Card } from "@kleros/ui-components-library";
 import { Link } from "react-router-dom";
 import styled, { css } from "styled-components";
 
 /** The library Button, typed to accept the DOM attributes it already forwards (aria-*, data-testid, type). */
 export const LibButton = Button as React.FC<
   React.ComponentProps<typeof Button> &
-    Omit<React.ButtonHTMLAttributes<HTMLButtonElement>, "onClick"> & { "data-testid"?: string }
+    Omit<React.ButtonHTMLAttributes<HTMLButtonElement>, "onClick"> & {
+      "data-testid"?: string;
+    }
 >;
 
 export const Shell = styled.main`
@@ -35,11 +37,14 @@ export const Grid = styled.div`
   gap: var(--gap);
 `;
 
-export const Panel = styled.section<{ $span?: number; $tight?: boolean }>`
-  background: var(--surface);
-  border: 1px solid var(--stroke);
-  border-radius: var(--r-lg);
-  padding: ${({ $tight }) => ($tight ? "8px 8px 4px" : "20px")};
+/** A section on the library Card surface (its border, shadow and radius), sized by its content. */
+export const Panel = styled(Card).attrs({ as: "section" })<{
+  $span?: number;
+  $tight?: boolean;
+}>`
+  width: auto;
+  height: auto;
+  padding: ${({ $tight }) => ($tight ? "8px 8px 4px" : "24px")};
   min-width: 0;
   grid-column: span ${({ $span }) => $span ?? 12};
   @media (max-width: 960px) {
@@ -139,8 +144,18 @@ export const Callout: React.FC<{
   children?: React.ReactNode;
   "data-testid"?: string;
 }> = ({ tone, title, children, ...rest }) => (
-  <CalloutBox $tone={tone} role={tone === "err" ? "alert" : undefined} {...rest}>
-    {tone === "ok" ? <Icon.check /> : tone === "err" ? <Icon.alert /> : <Icon.info />}
+  <CalloutBox
+    $tone={tone}
+    role={tone === "err" ? "alert" : undefined}
+    {...rest}
+  >
+    {tone === "ok" ? (
+      <Icon.check />
+    ) : tone === "err" ? (
+      <Icon.alert />
+    ) : (
+      <Icon.info />
+    )}
     <div>
       <h3>{title}</h3>
       {children}
@@ -159,16 +174,22 @@ export const ButtonLink = styled(Link)<{ $primary?: boolean }>`
   padding: 9px 24px;
   text-decoration: none;
   min-height: 44px;
-  color: ${({ $primary }) => ($primary ? "var(--on-primary, #1b1b2f)" : "var(--blue)")};
-  background: ${({ $primary, theme }) => ($primary ? theme.klerosUIComponentsPrimaryBlue : "var(--surface)")};
+  color: ${({ $primary }) =>
+    $primary ? "var(--on-primary, #1b1b2f)" : "var(--blue)"};
+  background: ${({ $primary, theme }) =>
+    $primary ? theme.klerosUIComponentsPrimaryBlue : "var(--surface)"};
   border: 1px solid ${({ theme }) => theme.klerosUIComponentsPrimaryBlue};
   &:hover {
     background: ${({ $primary, theme }) =>
-      $primary ? theme.klerosUIComponentsSecondaryBlue : theme.klerosUIComponentsMediumBlue};
+      $primary
+        ? theme.klerosUIComponentsSecondaryBlue
+        : theme.klerosUIComponentsMediumBlue};
   }
 `;
 
-export const Pill = styled.span<{ $tone?: "ok" | "warn" | "err" | "idle" | "live" }>`
+export const Pill = styled.span<{
+  $tone?: "ok" | "warn" | "err" | "idle" | "live";
+}>`
   display: inline-flex;
   align-items: center;
   gap: 6px;
@@ -329,7 +350,11 @@ export const Disclosure: React.FC<{
   const [open, setOpen] = React.useState(false);
   return (
     <DisclosureBox data-testid={testId}>
-      <button type="button" aria-expanded={open} onClick={() => setOpen((o) => !o)}>
+      <button
+        type="button"
+        aria-expanded={open}
+        onClick={() => setOpen((o) => !o)}
+      >
         <span aria-hidden="true">{open ? "▾" : "▸"}</span> {summary}
       </button>
       {open && <div className="body">{children}</div>}
@@ -365,7 +390,9 @@ const DisclosureBox = styled.div`
 /** True while the viewport is at most `px` wide. */
 export function useNarrow(px = 640): boolean {
   const query = `(max-width: ${px}px)`;
-  const [narrow, setNarrow] = React.useState(() => window.matchMedia(query).matches);
+  const [narrow, setNarrow] = React.useState(
+    () => window.matchMedia(query).matches,
+  );
   React.useEffect(() => {
     const mq = window.matchMedia(query);
     const on = () => setNarrow(mq.matches);

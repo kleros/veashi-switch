@@ -1,5 +1,12 @@
-import React, { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
-import { Copiable, Field } from "@kleros/ui-components-library";
+import React, {
+  useCallback,
+  useEffect,
+  useMemo,
+  useReducer,
+  useRef,
+  useState,
+} from "react";
+import { Copiable, Field, Tabs, Tag } from "@kleros/ui-components-library";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import styled from "styled-components";
 import type { Oracle, StageTx, SwitchRequest } from "../data";
@@ -7,7 +14,13 @@ import { BulbSvg } from "../components/Bulb";
 import { Circuit } from "../components/Circuit";
 import { requestModel } from "../components/circuitModel";
 import { plainError } from "../components/errors";
-import { clockTime, formatAmount, rulingName, shortAddress, shortHash } from "../components/format";
+import {
+  clockTime,
+  formatAmount,
+  rulingName,
+  shortAddress,
+  shortHash,
+} from "../components/format";
 import { listState } from "../components/route";
 import {
   readBulb,
@@ -67,18 +80,34 @@ const Head = styled(PageHead)`
   }
 `;
 
+/** The status card: bulb, what is happening and what comes next, and the one action, in one row. */
 const NowPanel = styled(Panel)`
-  display: flex;
-  gap: 20px;
-  align-items: flex-start;
-  flex-wrap: wrap;
-  margin-bottom: var(--gap);
-  h2 {
-    font-size: var(--fs-xl);
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  grid-template-areas: "bulb main actions";
+  align-items: center;
+  gap: 16px 32px;
+  margin-bottom: var(--gap-card);
+  > svg {
+    grid-area: bulb;
+    width: 96px;
+    height: 112px;
   }
   .main {
-    flex: 1 1 280px;
+    grid-area: main;
     min-width: 0;
+  }
+  .actions {
+    grid-area: actions;
+    display: grid;
+    gap: 12px;
+    justify-items: end;
+  }
+  .actions:empty {
+    display: none;
+  }
+  h2 {
+    font-size: var(--fs-xl);
   }
   .meta {
     display: grid;
@@ -97,9 +126,11 @@ const NowPanel = styled(Panel)`
   button {
     white-space: nowrap;
   }
-  @media (max-width: 640px) {
-    gap: 10px;
-    flex-wrap: nowrap;
+  @media (max-width: 760px) {
+    grid-template-columns: auto minmax(0, 1fr);
+    grid-template-areas: "bulb main" "actions actions";
+    align-items: start;
+    gap: 16px;
     h2 {
       font-size: var(--fs-lg);
     }
@@ -107,8 +138,8 @@ const NowPanel = styled(Panel)`
       width: 60px;
       height: 72px;
     }
-    .main {
-      flex-basis: 0;
+    .actions {
+      justify-items: stretch;
     }
   }
 `;
@@ -118,30 +149,37 @@ const Status = styled.span<{ $tone: "live" | "ok" | "err" }>`
   gap: 6px;
   align-items: center;
   font-weight: 600;
-  color: ${({ $tone }) => ($tone === "ok" ? "var(--ok)" : $tone === "err" ? "var(--err)" : "var(--blue)")};
+  color: ${({ $tone }) =>
+    $tone === "ok"
+      ? "var(--ok)"
+      : $tone === "err"
+        ? "var(--err)"
+        : "var(--blue)"};
   svg {
     width: 16px;
     height: 16px;
   }
 `;
 
+/** The local demo's decision: a label and two equal buttons, no box of its own. */
 const Simulate = styled.div`
-  margin-top: 14px;
-  padding: 12px 14px;
-  border: 1px dashed var(--warn);
-  border-radius: var(--r-lg);
-  background: var(--warn-bg);
   display: grid;
   gap: 10px;
+  justify-items: inherit;
   .row {
     display: flex;
     gap: 10px;
-    flex-wrap: wrap;
     align-items: center;
   }
   .row > button {
-    min-width: 120px;
+    min-width: 140px;
     min-height: 44px;
+  }
+  @media (max-width: 760px) {
+    .row > button {
+      flex: 1 1 0;
+      min-width: 0;
+    }
   }
 `;
 
@@ -159,53 +197,31 @@ const Paused = styled.div`
   }
 `;
 
-const Below = styled.div`
+/** Everything under the status card: one column, every card on the same edges. */
+const Stack = styled.div`
   display: grid;
   grid-template-columns: minmax(0, 1fr);
-  gap: var(--gap);
-  align-items: start;
+  gap: var(--gap-card);
   > section {
     min-width: 0;
-    grid-column: auto;
-  }
-  @media (min-width: 1024px) {
-    grid-template-columns: minmax(0, 2fr) minmax(0, 1fr);
-    .record {
-      position: sticky;
-      top: calc(var(--bar-h, 0px) + var(--gap));
-      max-height: calc(100vh - var(--bar-h, 0px) - 2 * var(--gap));
-      overflow: auto;
-    }
   }
   .record {
     scroll-margin-top: calc(var(--bar-h, 0px) + var(--gap));
   }
 `;
 
-const Switch = styled.div`
-  display: inline-flex;
-  border: 1px solid var(--stroke-strong);
-  border-radius: var(--r);
-  overflow: hidden;
+/** The library Tabs at their content width; its buttons need type, pressed state and test ids (set below). */
+const TabsBox = styled.div`
+  > div {
+    width: auto;
+  }
   button {
-    min-height: 44px;
-    min-width: 88px;
-    padding: 0 16px;
-    background: transparent;
-    border: 0;
-    color: var(--text-2);
-    font: inherit;
-    font-weight: 600;
+    min-width: 104px;
+    padding: 0 18px;
     white-space: nowrap;
     cursor: pointer;
-  }
-  button + button {
-    border-left: 1px solid var(--stroke-strong);
-  }
-  button[aria-pressed="true"] {
-    background: var(--tint);
-    color: var(--text);
-    box-shadow: inset 0 -3px 0 var(--purple-2);
+    font: inherit;
+    font-weight: 600;
   }
 `;
 
@@ -255,17 +271,31 @@ const FindBox = styled.dialog`
   }
 `;
 
+/** The six stages as one timeline: a marker per stage on a connecting line, chain and time on the right. */
 const Log = styled.ol`
   list-style: none;
   margin: 0;
   padding: 0;
   font-size: var(--fs-sm);
   > li {
+    position: relative;
     display: grid;
-    grid-template-columns: minmax(0, 1fr);
-    gap: 2px;
-    padding: 10px;
+    grid-template-columns: 28px minmax(0, 1fr);
+    gap: 0 12px;
+    padding: 12px 12px 12px 8px;
     border-radius: var(--r);
+  }
+  /* the line runs from this marker's bottom to the next marker's top */
+  > li:not(:last-child)::after {
+    content: "";
+    position: absolute;
+    left: 21px;
+    top: 40px;
+    bottom: -12px;
+    border-left: 2px solid var(--stroke-strong);
+  }
+  > li.done:not(:last-child)::after {
+    border-color: var(--ok);
   }
   > li.cur {
     background: var(--tint);
@@ -277,39 +307,88 @@ const Log = styled.ol`
   > li.fail .ev {
     color: var(--err);
   }
-  .ev {
-    font-weight: 600;
-    display: flex;
-    gap: 8px;
-    align-items: center;
-    flex-wrap: wrap;
+  .mk {
+    position: relative;
+    z-index: 1;
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    display: grid;
+    place-items: center;
+    border: 2px solid var(--stroke-strong);
+    background: var(--surface);
   }
-  .ev svg {
+  .mk svg {
     width: 16px;
     height: 16px;
-    flex: none;
   }
-  li.done > .ev svg {
+  li.done > .mk {
+    border-color: var(--ok);
     color: var(--ok);
+  }
+  li.cur > .mk {
+    border-color: var(--blue);
+    color: var(--blue);
+  }
+  li.fail > .mk {
+    border-color: var(--err);
+    color: var(--err);
+  }
+  .body {
+    min-width: 0;
+    display: grid;
+    gap: 2px;
+  }
+  .top {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 4px 16px;
+    min-height: 28px;
+  }
+  .ev {
+    font-weight: 600;
+    min-width: 0;
+  }
+  .meta {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+  }
+  .meta > div {
+    height: 26px;
+    padding: 0 10px;
+  }
+  .meta > div p {
+    font-size: var(--fs-sm);
+    line-height: 1;
   }
   .tm {
     color: var(--text-2);
     font-size: var(--fs-sm);
+    font-variant-numeric: tabular-nums;
   }
-  details {
-    margin-top: 2px;
+  .more {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0 24px;
+  }
+  .more > details[open] {
+    flex-basis: 100%;
   }
   summary {
     cursor: pointer;
     min-height: 44px;
-    display: flex;
+    display: inline-flex;
     align-items: center;
     color: var(--blue);
     font-weight: 600;
   }
   .reports {
     list-style: none;
-    padding: 0 0 0 4px;
+    padding: 0 0 8px 4px;
     margin: 0;
     display: grid;
     gap: 2px;
@@ -334,6 +413,14 @@ const Log = styled.ol`
   .reports li.skip,
   .reports li.todo {
     color: var(--text-2);
+  }
+  @media (max-width: 640px) {
+    > li {
+      padding-right: 4px;
+    }
+    .top {
+      justify-content: flex-start;
+    }
   }
 `;
 
@@ -364,25 +451,33 @@ const TxRow = styled.div`
   gap: 6px 10px;
 `;
 
+/** The request's facts as a grid of label-over-value cells: four across on desktop, two on tablets and phones. */
 const Facts = styled.dl`
   display: grid;
-  grid-template-columns: 9rem minmax(0, 1fr);
-  gap: 10px 12px;
-  margin: 0;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 20px 24px;
+  margin: 0 0 8px;
   font-size: var(--fs-sm);
+  > div {
+    display: grid;
+    gap: 4px;
+    align-content: start;
+    min-width: 0;
+  }
   dt {
     color: var(--text-2);
   }
   dd {
     margin: 0;
     overflow-wrap: anywhere;
+    font-weight: 600;
+  }
+  @media (max-width: 1023px) {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
   @media (max-width: 420px) {
     grid-template-columns: minmax(0, 1fr);
-    gap: 0;
-    dd {
-      margin-bottom: 8px;
-    }
+    gap: 14px;
   }
 `;
 
@@ -419,11 +514,35 @@ const Picker = styled.div`
   }
 `;
 
-const ChainTag = styled.span`
-  font-size: var(--fs-sm);
-  color: var(--text-2);
-  font-weight: 400;
-`;
+const ViewTabs: React.FC<{ view: View; onChange: (v: View) => void }> = ({
+  view,
+  onChange,
+}) => {
+  const box = useRef<HTMLDivElement>(null);
+  // The library Tabs render plain buttons: give them type, their pressed state and test ids after each render.
+  useEffect(() => {
+    box.current
+      ?.querySelectorAll<HTMLButtonElement>("button")
+      .forEach((b, i) => {
+        const v: View = i === 0 ? "steps" : "circuit";
+        b.type = "button";
+        b.setAttribute("aria-pressed", String(view === v));
+        b.dataset.testid = `toggle-${v}`;
+      });
+  });
+  return (
+    <TabsBox ref={box} role="group" aria-label="Show progress as">
+      <Tabs
+        currentValue={view}
+        items={[
+          { text: "Steps", value: "steps" },
+          { text: "Circuit", value: "circuit" },
+        ]}
+        callback={(v: View) => onChange(v)}
+      />
+    </TabsBox>
+  );
+};
 
 const TxCopy: React.FC<{ tx: StageTx; testId?: string }> = ({ tx, testId }) => {
   const copy = useCopy();
@@ -519,10 +638,20 @@ function useMyRequests(stage?: string) {
       live = false;
     };
   }, [data, wallet.ready, wallet.address, stage, tick]);
-  return { items, error, loading, retry: () => setTick((t) => t + 1), state: listState({ loading, error, items }) };
+  return {
+    items,
+    error,
+    loading,
+    retry: () => setTick((t) => t + 1),
+    state: listState({ loading, error, items }),
+  };
 }
 
-const FindBody: React.FC<{ current?: bigint; stage?: string; onClose: () => void }> = ({ current, stage, onClose }) => {
+const FindBody: React.FC<{
+  current?: bigint;
+  stage?: string;
+  onClose: () => void;
+}> = ({ current, stage, onClose }) => {
   const wallet = useWallet();
   const list = useMyRequests(stage);
   return (
@@ -544,7 +673,14 @@ const FindBody: React.FC<{ current?: bigint; stage?: string; onClose: () => void
         ) : list.state === "failed" ? (
           <div role="alert" className="msg">
             <p>Could not load your requests. {list.error}</p>
-            <LibButton small variant="secondary" text="Retry" type="button" onClick={list.retry} data-testid="retry-list" />
+            <LibButton
+              small
+              variant="secondary"
+              text="Retry"
+              type="button"
+              onClick={list.retry}
+              data-testid="retry-list"
+            />
           </div>
         ) : list.state === "empty" ? (
           <p className="msg" data-testid="list-empty">
@@ -565,7 +701,9 @@ const FindBody: React.FC<{ current?: bigint; stage?: string; onClose: () => void
                     data-testid={`request-option-${r.disputeId}`}
                   >
                     Request #{r.disputeId.toString()} ·{" "}
-                    {r.stage === "switched" ? `Ruled ${r.ruling === 1 ? "On" : "Off"}` : STAGE_LABEL[r.stage]}
+                    {r.stage === "switched"
+                      ? `Ruled ${r.ruling === 1 ? "On" : "Off"}`
+                      : STAGE_LABEL[r.stage]}
                   </Link>
                 </li>
               ))}
@@ -578,7 +716,10 @@ const FindBody: React.FC<{ current?: bigint; stage?: string; onClose: () => void
 };
 
 /** One "Find or switch request" button that opens one panel with the request-ID field and "Your requests". */
-const FindRequest: React.FC<{ current?: bigint; stage?: string }> = ({ current, stage }) => {
+const FindRequest: React.FC<{ current?: bigint; stage?: string }> = ({
+  current,
+  stage,
+}) => {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDialogElement>(null);
   useEffect(() => {
@@ -606,7 +747,13 @@ const FindRequest: React.FC<{ current?: bigint; stage?: string }> = ({ current, 
           if (e.target === ref.current) setOpen(false);
         }}
       >
-        {open && <FindBody current={current} stage={stage} onClose={() => setOpen(false)} />}
+        {open && (
+          <FindBody
+            current={current}
+            stage={stage}
+            onClose={() => setOpen(false)}
+          />
+        )}
       </FindBox>
     </div>
   );
@@ -620,15 +767,23 @@ const Latest: React.FC = () => {
   const route = routeConfig(data.chains());
   const list = useMyRequests();
   useEffect(() => {
-    if (list.items && list.items.length) nav(`/track/${list.items[0].disputeId.toString()}`, { replace: true });
+    if (list.items && list.items.length)
+      nav(`/track/${list.items[0].disputeId.toString()}`, { replace: true });
   }, [list.items, nav]);
-  const gate = walletGate({ networkUp: true, status: wallet.status, chainId: wallet.chainId, route });
+  const gate = walletGate({
+    networkUp: true,
+    status: wallet.status,
+    chainId: wallet.chainId,
+    route,
+  });
   return (
     <Shell>
       <PageHead>
         <div>
           <h1>Track a request</h1>
-          <p>Follow a request from sending to the court's decision and the bulb.</p>
+          <p>
+            Follow a request from sending to the court's decision and the bulb.
+          </p>
         </div>
       </PageHead>
       <Panel>
@@ -648,7 +803,13 @@ const Latest: React.FC = () => {
           <Callout tone="err" title="Could not load your requests">
             <p>{list.error}</p>
             <p style={{ marginTop: 8 }}>
-              <LibButton small text="Retry" type="button" onClick={list.retry} data-testid="retry-list" />
+              <LibButton
+                small
+                text="Retry"
+                type="button"
+                onClick={list.retry}
+                data-testid="retry-list"
+              />
             </p>
           </Callout>
         ) : (
@@ -670,7 +831,10 @@ const Latest: React.FC = () => {
   );
 };
 
-const SimulateCourt: React.FC<{ req: SwitchRequest; onSent: () => void }> = ({ req, onSent }) => {
+const SimulateCourt: React.FC<{ req: SwitchRequest; onSent: () => void }> = ({
+  req,
+  onSent,
+}) => {
   const { data } = useSetup();
   const [busy, setBusy] = useState<1 | 2 | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -696,11 +860,26 @@ const SimulateCourt: React.FC<{ req: SwitchRequest; onSent: () => void }> = ({ r
         </Pill>
       </div>
       <div className="row">
-        <LibButton text="Decide On" type="button" disabled={!!busy} isLoading={busy === 1} onClick={() => void rule(1)} />
-        <LibButton text="Decide Off" type="button" disabled={!!busy} isLoading={busy === 2} onClick={() => void rule(2)} />
+        <LibButton
+          text="Decide On"
+          type="button"
+          disabled={!!busy}
+          isLoading={busy === 1}
+          onClick={() => void rule(1)}
+        />
+        <LibButton
+          text="Decide Off"
+          type="button"
+          disabled={!!busy}
+          isLoading={busy === 2}
+          onClick={() => void rule(2)}
+        />
       </div>
       {error && (
-        <p role="alert" style={{ color: "var(--err)", fontSize: "var(--fs-sm)" }}>
+        <p
+          role="alert"
+          style={{ color: "var(--err)", fontSize: "var(--fs-sm)" }}
+        >
           {error}
         </p>
       )}
@@ -709,7 +888,13 @@ const SimulateCourt: React.FC<{ req: SwitchRequest; onSent: () => void }> = ({ r
 };
 
 const stateIcon = (s: EntryState) =>
-  s === "done" ? <Icon.check /> : s === "fail" ? <Icon.alert /> : s === "cur" ? <Icon.clock /> : null;
+  s === "done" ? (
+    <Icon.check />
+  ) : s === "fail" ? (
+    <Icon.alert />
+  ) : s === "cur" ? (
+    <Icon.clock />
+  ) : null;
 
 const STATE_WORD: Record<EntryState, string> = {
   done: "Done",
@@ -725,49 +910,79 @@ const EntryRow: React.FC<{
   seen: number | undefined;
   names: { foreign: string; home: string };
 }> = ({ e, reports, seen, names }) => {
-  const doneReports = reports.filter((r) => r.report?.status === "reported").length;
+  const doneReports = reports.filter(
+    (r) => r.report?.status === "reported",
+  ).length;
   return (
-    <li className={e.state} data-testid={`log-${e.key}`} data-state={e.state} aria-current={e.state === "cur" ? "step" : undefined}>
-      <span className="ev">
+    <li
+      className={e.state}
+      data-testid={`log-${e.key}`}
+      data-state={e.state}
+      aria-current={e.state === "cur" ? "step" : undefined}
+    >
+      <span className="mk" aria-hidden="true">
         {stateIcon(e.state)}
-        <span data-testid="stage-title">{e.title}</span>
-        <ChainTag>{e.chain === "foreign" ? names.foreign : names.home}</ChainTag>
-        <span className="visually-hidden">{STATE_WORD[e.state]}</span>
       </span>
-      {(e.state === "done" || e.state === "fail") && (
-        <span className="tm">{seen ? `Observed at ${clockTime(seen)}` : "Completed before this page opened"}</span>
-      )}
-      {reports.length > 0 && e.state !== "todo" && (
-        <details>
-          <summary>
-            Oracle reports · {doneReports} of {reports.length}
-          </summary>
-          <ul className="reports">
-            {reports.map((r) => (
-              <li
-                key={r.key}
-                className={r.state}
-                data-testid={r.key}
-                data-state={r.state}
-                data-status={r.report?.status}
-              >
-                {stateIcon(r.state)}
-                <span>{r.title}</span>
-              </li>
-            ))}
-          </ul>
-        </details>
-      )}
-      {e.txs.length > 0 && e.state !== "todo" && (
-        <details>
-          <summary>Transaction details</summary>
-          <TxRow>
-            {e.txs.map((t) => (
-              <TxCopy key={t.hash + t.label} tx={t} testId={`log-tx-${e.key}`} />
-            ))}
-          </TxRow>
-        </details>
-      )}
+      <div className="body">
+        <div className="top">
+          <span className="ev">
+            <span data-testid="stage-title">{e.title}</span>
+            <span className="visually-hidden">{STATE_WORD[e.state]}</span>
+          </span>
+          <div className="meta">
+            {(e.state === "done" || e.state === "fail") && (
+              <span className="tm">
+                {seen
+                  ? `Observed at ${clockTime(seen)}`
+                  : "Completed before this page opened"}
+              </span>
+            )}
+            <Tag
+              as="div"
+              text={e.chain === "foreign" ? names.foreign : names.home}
+            />
+          </div>
+        </div>
+        {(reports.length > 0 || e.txs.length > 0) && e.state !== "todo" && (
+          <div className="more">
+            {reports.length > 0 && (
+              <details>
+                <summary>
+                  Oracle reports · {doneReports} of {reports.length}
+                </summary>
+                <ul className="reports">
+                  {reports.map((r) => (
+                    <li
+                      key={r.key}
+                      className={r.state}
+                      data-testid={r.key}
+                      data-state={r.state}
+                      data-status={r.report?.status}
+                    >
+                      {stateIcon(r.state)}
+                      <span>{r.title}</span>
+                    </li>
+                  ))}
+                </ul>
+              </details>
+            )}
+            {e.txs.length > 0 && (
+              <details>
+                <summary>Transaction details</summary>
+                <TxRow>
+                  {e.txs.map((t) => (
+                    <TxCopy
+                      key={t.hash + t.label}
+                      tx={t}
+                      testId={`log-tx-${e.key}`}
+                    />
+                  ))}
+                </TxRow>
+              </details>
+            )}
+          </div>
+        )}
+      </div>
     </li>
   );
 };
@@ -776,7 +991,9 @@ const VIEW_KEY = "veashi.track.view";
 type View = "steps" | "circuit";
 const readView = (): View => {
   try {
-    return window.localStorage.getItem(VIEW_KEY) === "circuit" ? "circuit" : "steps";
+    return window.localStorage.getItem(VIEW_KEY) === "circuit"
+      ? "circuit"
+      : "steps";
   } catch {
     return "steps";
   }
@@ -822,7 +1039,10 @@ const Tracked: React.FC<{ id: bigint }> = ({ id }) => {
       (r) => live && dispatch({ type: "loaded", req: r }),
       (e) => live && dispatch({ type: "failed", error: plainError(e) }),
     );
-    const stop = data.watchRequest(id, (r) => live && dispatch({ type: "loaded", req: r }));
+    const stop = data.watchRequest(
+      id,
+      (r) => live && dispatch({ type: "loaded", req: r }),
+    );
     return () => {
       live = false;
       stop();
@@ -852,7 +1072,10 @@ const Tracked: React.FC<{ id: bigint }> = ({ id }) => {
 
   // The wallet's current bulb, read from the same source as the Request page, once the request has switched it.
   // null while the read is pending; "failed" once a few short retries were rejected. Never inferred from the ruling.
-  const [bulbStored, setBulbStored] = useState<{ owner: string; read: BulbRead } | null>(null);
+  const [bulbStored, setBulbStored] = useState<{
+    owner: string;
+    read: BulbRead;
+  } | null>(null);
   const [bulbTry, setBulbTry] = useState(0);
   const owner = req?.owner;
   const switched = req?.stage === "switched";
@@ -872,11 +1095,22 @@ const Tracked: React.FC<{ id: bigint }> = ({ id }) => {
   }, [data, owner, switched, req?.updatedAt, bulbTry]);
   // what was read for another request's owner is not shown; unknown is neither on nor off
   const bulbRead: BulbRead =
-    owner && bulbStored && bulbStored.owner === owner ? bulbStored.read : { kind: "loading" };
-  const mine = !!owner && !!wallet.address && wallet.address.toLowerCase() === owner.toLowerCase();
+    owner && bulbStored && bulbStored.owner === owner
+      ? bulbStored.read
+      : { kind: "loading" };
+  const mine =
+    !!owner &&
+    !!wallet.address &&
+    wallet.address.toLowerCase() === owner.toLowerCase();
 
-  const model = useMemo(() => (req ? requestModel(req, oracles, names, bulbRead, mine) : null), [req, oracles, route, bulbRead, mine]); // eslint-disable-line react-hooks/exhaustive-deps
-  const entries = useMemo(() => (req ? logEntries(req, oracles, names) : []), [req, oracles, route]); // eslint-disable-line react-hooks/exhaustive-deps
+  const model = useMemo(
+    () => (req ? requestModel(req, oracles, names, bulbRead, mine) : null),
+    [req, oracles, route, bulbRead, mine],
+  ); // eslint-disable-line react-hooks/exhaustive-deps
+  const entries = useMemo(
+    () => (req ? logEntries(req, oracles, names) : []),
+    [req, oracles, route],
+  ); // eslint-disable-line react-hooks/exhaustive-deps
   // Times are when this page saw each step happen; steps already done when it opened were completed before.
   const now = Date.now();
   for (const e of entries)
@@ -931,7 +1165,9 @@ const Tracked: React.FC<{ id: bigint }> = ({ id }) => {
       <Shell>
         {head(`No request #${id.toString()}`)}
         <Panel>
-          <p className="sub">There is no request with this ID on {names.foreign}.</p>
+          <p className="sub">
+            There is no request with this ID on {names.foreign}.
+          </p>
         </Panel>
       </Shell>
     );
@@ -950,16 +1186,29 @@ const Tracked: React.FC<{ id: bigint }> = ({ id }) => {
   const paused = req.stage === "failed" ? pausedModel(req, names) : null;
   const tokenDecimals = req.paid.token === "usdc" ? usdcDecimals : 18;
   const symbol = req.paid.token === "usdc" ? "USDC" : "ETH";
-  const oName = (oid: number) => oracles.find((o) => o.id === oid)?.name ?? `Oracle ${oid}`;
-  const doneCount = entries.filter((e) => !e.report && e.state === "done").length;
+  const oName = (oid: number) =>
+    oracles.find((o) => o.id === oid)?.name ?? `Oracle ${oid}`;
+  const doneCount = entries.filter(
+    (e) => !e.report && e.state === "done",
+  ).length;
   const bulb = model?.bulb ?? "waiting";
   const stageEntries = entries.filter((e) => !e.report);
   const reportsFor = (key: string) =>
-    entries.filter((e) => e.report && e.report.leg === (key === "dispute-relaying" ? "dispute" : "ruling"));
+    entries.filter(
+      (e) =>
+        e.report &&
+        e.report.leg === (key === "dispute-relaying" ? "dispute" : "ruling"),
+    );
 
   const statusLine = (
     <Status $tone={n.status} data-testid="track-stage" data-stage={req.stage}>
-      {n.status === "ok" ? <Icon.check /> : n.status === "err" ? <Icon.alert /> : <Icon.clock />}
+      {n.status === "ok" ? (
+        <Icon.check />
+      ) : n.status === "err" ? (
+        <Icon.alert />
+      ) : (
+        <Icon.clock />
+      )}
       {n.statusText}
       {n.counts ? ` · ${n.counts}` : ""}
     </Status>
@@ -989,10 +1238,17 @@ const Tracked: React.FC<{ id: bigint }> = ({ id }) => {
         </div>
       )}
 
-      <NowPanel aria-label="Current status" data-testid="now" aria-live="polite">
+      <NowPanel
+        aria-label="Current status"
+        data-testid="now"
+        aria-live="polite"
+      >
         <BulbSvg state={bulb} />
         <div className="main">
-          <p className="visually-hidden" data-testid="bulb-state-text">{`Bulb is ${bulb === "waiting" ? "waiting for the decision" : bulb === "unknown" ? (bulbRead.kind === "failed" ? "unavailable, the check failed" : "being checked") : bulb}`}</p>
+          <p
+            className="visually-hidden"
+            data-testid="bulb-state-text"
+          >{`Bulb is ${bulb === "waiting" ? "waiting for the decision" : bulb === "unknown" ? (bulbRead.kind === "failed" ? "unavailable, the check failed" : "being checked") : bulb}`}</p>
           <h2 data-testid="now-title">{n.title}</h2>
           <p className="sub" style={{ marginTop: 6 }}>
             {n.body}
@@ -1003,14 +1259,15 @@ const Tracked: React.FC<{ id: bigint }> = ({ id }) => {
                 <dt>{n.bulbNow.label}</dt>
                 <dd data-testid="bulb-now">
                   {n.bulbNow.value}
-                  {n.bulbNow.differs && <span className="differs"> · {n.bulbNow.differs}</span>}
+                  {n.bulbNow.differs && (
+                    <span className="differs"> · {n.bulbNow.differs}</span>
+                  )}
                 </dd>
               </>
             )}
             <dt>Next</dt>
             <dd>{n.next}</dd>
           </dl>
-          {n.action === "simulate" && <SimulateCourt req={req} onSent={() => setRuled(true)} />}
           {paused && (
             <Paused data-testid="paused">
               <p>
@@ -1035,39 +1292,181 @@ const Tracked: React.FC<{ id: bigint }> = ({ id }) => {
               </div>
               {paused.detail && (
                 <Disclosure summary="Technical details">
-                  <pre style={{ whiteSpace: "pre-wrap", margin: 0 }}>{paused.detail}</pre>
+                  <pre style={{ whiteSpace: "pre-wrap", margin: 0 }}>
+                    {paused.detail}
+                  </pre>
                 </Disclosure>
               )}
             </Paused>
           )}
+        </div>
+        <div className="actions">
+          {n.action === "simulate" && (
+            <SimulateCourt req={req} onSent={() => setRuled(true)} />
+          )}
           {req.stage === "switched" && bulbRead.kind === "failed" && (
-            <p style={{ marginTop: 14 }}>
-              <LibButton small variant="secondary" text="Retry bulb check" type="button" onClick={() => setBulbTry((x) => x + 1)} data-testid="bulb-retry" />
-            </p>
+            <LibButton
+              small
+              variant="secondary"
+              text="Retry bulb check"
+              type="button"
+              onClick={() => setBulbTry((x) => x + 1)}
+              data-testid="bulb-retry"
+            />
           )}
           {req.stage === "switched" && (
-            <p style={{ marginTop: 14 }}>
-              <ButtonLink to="/">Send another request</ButtonLink>
-            </p>
+            <ButtonLink to="/">Send another request</ButtonLink>
           )}
         </div>
       </NowPanel>
 
-      <Below>
+      <Stack>
+        <Panel className="record" id="track-route" aria-labelledby="facts-h">
+          <PanelHead>
+            <div>
+              <h2 id="facts-h">Request summary</h2>
+            </div>
+          </PanelHead>
+          <Facts data-testid="dispute-record">
+            <div>
+              <dt>Route</dt>
+              <dd data-testid="record-route">{`${names.foreign} → ${names.home} → ${names.foreign} · Local devnet`}</dd>
+            </div>
+            <div>
+              <dt>Paid</dt>
+              <dd className="mono">
+                {formatAmount(req.paid.amount, tokenDecimals, symbol)}
+              </dd>
+            </div>
+            <div>
+              <dt>Requester</dt>
+              <dd>
+                <Copiable copiableContent={req.owner} info="Copy address">
+                  <span className="mono" title={req.owner}>
+                    {shortAddress(req.owner)}
+                  </span>
+                </Copiable>
+              </dd>
+            </div>
+            <div>
+              <dt>Selected oracles</dt>
+              <dd>
+                <Strands>
+                  {req.selection.oracleIds.map((oid) => (
+                    <span key={oid}>
+                      <Swatch $color={oracleColor(oid)} />
+                      {oName(oid)}
+                    </span>
+                  ))}
+                </Strands>
+              </dd>
+            </div>
+            <div>
+              <dt>Agreement</dt>
+              <dd>
+                {req.selection.threshold} of {req.selection.oracleIds.length}{" "}
+                must agree
+              </dd>
+            </div>
+            <div>
+              <dt>Decision</dt>
+              <dd data-testid="ruling">
+                {req.ruling === 0 ? "Not decided yet" : rulingName(req.ruling)}
+              </dd>
+            </div>
+            <div>
+              <dt>Request ID</dt>
+              <dd data-testid="request-id">
+                #{req.disputeId.toString()} · {names.foreign}
+              </dd>
+            </div>
+            <div>
+              <dt>Court case ID</dt>
+              <dd data-testid="home-dispute">
+                {req.homeDisputeId !== null
+                  ? `#${req.homeDisputeId.toString()} · ${names.home}`
+                  : "Not created yet"}
+              </dd>
+            </div>
+          </Facts>
+          <Disclosure
+            summary="Technical details"
+            data-testid="technical-details"
+          >
+            <div style={{ display: "grid", gap: 14 }}>
+              <div>
+                <h3>Contracts</h3>
+                <p className="mono">
+                  ForeignGateway {env.addresses.foreign.ForeignGateway ?? ""} ·{" "}
+                  {names.foreign} · dispute #{req.disputeId.toString()}
+                </p>
+                <p className="mono" data-testid="tech-home">
+                  HomeGateway {env.addresses.home.HomeGateway ?? ""} ·
+                  KlerosCoreRuler {env.addresses.home.KlerosCoreRuler ?? ""} ·{" "}
+                  {names.home} ·{" "}
+                  {req.homeDisputeId !== null
+                    ? `dispute #${req.homeDisputeId.toString()}`
+                    : "not created yet"}
+                </p>
+              </div>
+              <div>
+                <h3>Oracles</h3>
+                {req.selection.oracleIds.map((oid) => (
+                  <p key={oid} className="mono">
+                    {oName(oid)} · oracle id {oid} ·{" "}
+                    {oracles.find((o) => o.id === oid)?.via ?? ""}
+                  </p>
+                ))}
+              </div>
+              <div>
+                <h3>Calls</h3>
+                {stageEntries.map((e) => (
+                  <p key={e.key} className="mono">
+                    {e.title}: {e.tech}
+                  </p>
+                ))}
+                <p className="mono">
+                  Ruling code {req.ruling} (1 = On, 2 = Off)
+                </p>
+                {req.stage === "switched" && (
+                  <p className="mono">
+                    LightbulbSwitched({shortAddress(req.owner)},{" "}
+                    {req.disputeId.toString()},{" "}
+                    {req.ruling === 1 ? "true" : "false"})
+                  </p>
+                )}
+              </div>
+              <div>
+                <h3>Transactions</h3>
+                {req.txs.length === 0 && <p>None yet.</p>}
+                <TxRow style={{ display: "grid" }}>
+                  {req.txs.map((t) => (
+                    <span
+                      key={t.hash + t.label}
+                      className="mono"
+                      data-testid="tech-tx"
+                      data-hash={t.hash}
+                      data-stage={t.stage}
+                    >
+                      {t.chain === "foreign" ? names.foreign : names.home} ·{" "}
+                      {t.label} · {t.hash}
+                    </span>
+                  ))}
+                </TxRow>
+              </div>
+            </div>
+          </Disclosure>
+        </Panel>
         <Panel aria-labelledby="progress-h" data-testid="progress">
           <PanelHead>
             <div>
               <h2 id="progress-h">Progress</h2>
-              <p>{doneCount} of 6 steps done. Open a step for its oracle reports and transactions.</p>
+              <p>
+                {doneCount} of 6 steps done. Open a step for its oracle reports
+                and transactions.
+              </p>
             </div>
-            <Switch role="group" aria-label="Show progress as">
-              <button type="button" aria-pressed={view === "steps"} onClick={() => setView("steps")} data-testid="toggle-steps">
-                Steps
-              </button>
-              <button type="button" aria-pressed={view === "circuit"} onClick={() => setView("circuit")} data-testid="toggle-circuit">
-                Circuit
-              </button>
-            </Switch>
+            <ViewTabs view={view} onChange={setView} />
           </PanelHead>
           {view === "steps" ? (
             <div data-testid="lifecycle-summary">
@@ -1076,7 +1475,12 @@ const Tracked: React.FC<{ id: bigint }> = ({ id }) => {
                   <EntryRow
                     key={e.key}
                     e={e}
-                    reports={e.key === "dispute-relaying" || e.key === "ruling-relaying" ? reportsFor(e.key) : []}
+                    reports={
+                      e.key === "dispute-relaying" ||
+                      e.key === "ruling-relaying"
+                        ? reportsFor(e.key)
+                        : []
+                    }
                     seen={seen.current.get(e.key) || undefined}
                     names={names}
                   />
@@ -1093,102 +1497,7 @@ const Tracked: React.FC<{ id: bigint }> = ({ id }) => {
             )
           )}
         </Panel>
-
-        <Panel className="record" id="track-route" aria-labelledby="facts-h">
-          <PanelHead>
-            <div>
-              <h2 id="facts-h">Request summary</h2>
-            </div>
-          </PanelHead>
-          <Facts data-testid="dispute-record">
-            <dt>Route</dt>
-            <dd data-testid="record-route">{`${names.foreign} → ${names.home} → ${names.foreign} · Local devnet`}</dd>
-            <dt>Paid</dt>
-            <dd className="mono">{formatAmount(req.paid.amount, tokenDecimals, symbol)}</dd>
-            <dt>Requester</dt>
-            <dd>
-              <Copiable copiableContent={req.owner} info="Copy address">
-                <span className="mono" title={req.owner}>
-                  {shortAddress(req.owner)}
-                </span>
-              </Copiable>
-            </dd>
-            <dt>Selected oracles</dt>
-            <dd>
-              <Strands>
-                {req.selection.oracleIds.map((oid) => (
-                  <span key={oid}>
-                    <Swatch $color={oracleColor(oid)} />
-                    {oName(oid)}
-                  </span>
-                ))}
-              </Strands>
-            </dd>
-            <dt>Agreement</dt>
-            <dd>
-              {req.selection.threshold} of {req.selection.oracleIds.length} must agree
-            </dd>
-            <dt>Decision</dt>
-            <dd data-testid="ruling">{req.ruling === 0 ? "Not decided yet" : rulingName(req.ruling)}</dd>
-            <dt>Request ID</dt>
-            <dd data-testid="request-id">
-              #{req.disputeId.toString()} · {names.foreign}
-            </dd>
-            <dt>Court case ID</dt>
-            <dd data-testid="home-dispute">
-              {req.homeDisputeId !== null ? `#${req.homeDisputeId.toString()} · ${names.home}` : "Not created yet"}
-            </dd>
-          </Facts>
-          <Disclosure summary="Technical details" data-testid="technical-details">
-            <div style={{ display: "grid", gap: 14 }}>
-              <div>
-                <h3>Contracts</h3>
-                <p className="mono">
-                  ForeignGateway {env.addresses.foreign.ForeignGateway ?? ""} · {names.foreign} · dispute #
-                  {req.disputeId.toString()}
-                </p>
-                <p className="mono" data-testid="tech-home">
-                  HomeGateway {env.addresses.home.HomeGateway ?? ""} · KlerosCoreRuler {env.addresses.home.KlerosCoreRuler ?? ""} ·{" "}
-                  {names.home} · {req.homeDisputeId !== null ? `dispute #${req.homeDisputeId.toString()}` : "not created yet"}
-                </p>
-              </div>
-              <div>
-                <h3>Oracles</h3>
-                {req.selection.oracleIds.map((oid) => (
-                  <p key={oid} className="mono">
-                    {oName(oid)} · oracle id {oid} · {oracles.find((o) => o.id === oid)?.via ?? ""}
-                  </p>
-                ))}
-              </div>
-              <div>
-                <h3>Calls</h3>
-                {stageEntries.map((e) => (
-                  <p key={e.key} className="mono">
-                    {e.title}: {e.tech}
-                  </p>
-                ))}
-                <p className="mono">Ruling code {req.ruling} (1 = On, 2 = Off)</p>
-                {req.stage === "switched" && (
-                  <p className="mono">
-                    LightbulbSwitched({shortAddress(req.owner)}, {req.disputeId.toString()}, {req.ruling === 1 ? "true" : "false"})
-                  </p>
-                )}
-              </div>
-              <div>
-                <h3>Transactions</h3>
-                {req.txs.length === 0 && <p>None yet.</p>}
-                <TxRow style={{ display: "grid" }}>
-                  {req.txs.map((t) => (
-                    <span key={t.hash + t.label} className="mono" data-testid="tech-tx" data-hash={t.hash} data-stage={t.stage}>
-                      {t.chain === "foreign" ? names.foreign : names.home} · {t.label} · {t.hash}
-                    </span>
-                  ))}
-                </TxRow>
-              </div>
-            </div>
-          </Disclosure>
-        </Panel>
-      </Below>
+      </Stack>
     </Shell>
   );
 };

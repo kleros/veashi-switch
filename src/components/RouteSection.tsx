@@ -23,7 +23,6 @@ const Card = styled.div<{ $c: string }>`
   padding: 14px 16px;
   min-height: 56px;
   border: 1px solid var(--stroke-strong);
-  border-left: 4px solid ${({ $c }) => $c};
   border-radius: var(--r-lg);
   background: var(--surface-2);
   .label {
@@ -32,6 +31,16 @@ const Card = styled.div<{ $c: string }>`
   }
   .value {
     font-weight: 600;
+  }
+  .value::before {
+    content: "";
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    margin-right: 8px;
+    border-radius: 50%;
+    background: ${({ $c }) => $c};
+    vertical-align: 1px;
   }
 `;
 
@@ -44,14 +53,12 @@ const Arrow = styled.span`
   }
 `;
 
+/** The local-only boundary: a quiet label beside the heading, not a competing box. */
 const Badge = styled.span`
-  display: inline-flex;
-  flex-direction: column;
+  display: inline-grid;
   gap: 2px;
-  padding: 6px 12px;
-  border: 1px solid var(--warn);
-  border-radius: var(--r);
-  background: var(--warn-bg);
+  justify-items: end;
+  text-align: right;
   color: var(--warn);
   font-size: var(--fs-sm);
   font-weight: 600;
@@ -59,6 +66,10 @@ const Badge = styled.span`
     font-weight: 400;
     color: var(--text-2);
     font-size: var(--fs-sm);
+  }
+  @media (max-width: 640px) {
+    justify-items: start;
+    text-align: left;
   }
 `;
 
@@ -95,13 +106,21 @@ export const RouteSection: React.FC<{
 }> = ({ gate, unavailable, onRetry, children }) => {
   const route = useRoute();
   return (
-    <Panel id="network-route" style={{ scrollMarginTop: "calc(var(--bar-h, 0px) + 8px)" }} aria-labelledby="route-h" data-testid="route-section">
+    <Panel
+      id="network-route"
+      style={{ scrollMarginTop: "calc(var(--bar-h, 0px) + 8px)" }}
+      aria-labelledby="route-h"
+      data-testid="route-section"
+    >
       <PanelHead>
         <div>
           <h2 id="route-h" data-step-heading>
             Network route
           </h2>
-          <p>The ruling returns to {route.from.name}. Only this local route is available.</p>
+          <p>
+            The ruling returns to {route.from.name}. Only this local route is
+            available.
+          </p>
         </div>
         <Badge data-testid="local-badge">
           Local devnet only
@@ -110,11 +129,13 @@ export const RouteSection: React.FC<{
       </PanelHead>
       <Cards>
         <Card $c="#0052ff" data-testid="chain-from">
-          <span className="label">Request from:</span> <span className="value">{route.from.name} · Local devnet</span>
+          <span className="label">Request from:</span>{" "}
+          <span className="value">{route.from.name} · Local devnet</span>
         </Card>
         <Arrow aria-hidden="true">→</Arrow>
         <Card $c="#28a0f0" data-testid="chain-to">
-          <span className="label">Court on:</span> <span className="value">{route.to.name} · Local devnet</span>
+          <span className="label">Court on:</span>{" "}
+          <span className="value">{route.to.name} · Local devnet</span>
         </Card>
       </Cards>
       <Disclosure summary="Network details" data-testid="network-details">
@@ -130,7 +151,11 @@ export const RouteSection: React.FC<{
         </Details>
       </Disclosure>
       <Wallet>
-        {unavailable ? <NetworkDown error={unavailable} onRetry={onRetry} /> : <WalletStrip gate={gate} />}
+        {unavailable ? (
+          <NetworkDown error={unavailable} onRetry={onRetry} />
+        ) : (
+          <WalletStrip gate={gate} />
+        )}
       </Wallet>
       {children}
     </Panel>

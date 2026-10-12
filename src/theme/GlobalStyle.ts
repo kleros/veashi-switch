@@ -13,7 +13,9 @@ export const GlobalStyle = createGlobalStyle`
     --fs-xl: 1.5rem;
     --r: 3px;
     --r-lg: 6px;
-    --gap: 16px;
+    --gap: 16px; /* inside a card */
+    --gap-card: 24px; /* between cards */
+    --gap-section: 32px; /* between page sections */
     --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
   }
   *, *::before, *::after { box-sizing: border-box; }
