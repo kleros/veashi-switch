@@ -1,11 +1,4 @@
-import React, {
-  useCallback,
-  useEffect,
-  useMemo,
-  useReducer,
-  useRef,
-  useState,
-} from "react";
+import React, { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { Copiable, Field, Tabs, Tag } from "@kleros/ui-components-library";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import styled from "styled-components";
@@ -14,13 +7,7 @@ import { BulbSvg } from "../components/Bulb";
 import { Circuit } from "../components/Circuit";
 import { requestModel } from "../components/circuitModel";
 import { plainError } from "../components/errors";
-import {
-  clockTime,
-  formatAmount,
-  rulingName,
-  shortAddress,
-  shortHash,
-} from "../components/format";
+import { clockTime, formatAmount, rulingName, shortAddress, shortHash } from "../components/format";
 import { listState } from "../components/route";
 import {
   readBulb,
@@ -149,12 +136,7 @@ const Status = styled.span<{ $tone: "live" | "ok" | "err" }>`
   gap: 6px;
   align-items: center;
   font-weight: 600;
-  color: ${({ $tone }) =>
-    $tone === "ok"
-      ? "var(--ok)"
-      : $tone === "err"
-        ? "var(--err)"
-        : "var(--blue)"};
+  color: ${({ $tone }) => ($tone === "ok" ? "var(--ok)" : $tone === "err" ? "var(--err)" : "var(--blue)")};
   svg {
     width: 16px;
     height: 16px;
@@ -207,6 +189,10 @@ const Stack = styled.div`
   }
   .record {
     scroll-margin-top: calc(var(--bar-h, 0px) + var(--gap));
+  }
+  [data-testid="circuit"] {
+    max-width: 960px;
+    margin: 0 auto;
   }
 `;
 
@@ -474,10 +460,10 @@ const Facts = styled.dl`
   }
   @media (max-width: 1023px) {
     grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-  @media (max-width: 420px) {
-    grid-template-columns: minmax(0, 1fr);
-    gap: 14px;
+    gap: 16px 20px;
+    > .wide {
+      grid-column: 1 / -1;
+    }
   }
 `;
 
@@ -496,6 +482,11 @@ const Picker = styled.div`
   display: grid;
   gap: 10px;
   min-width: min(100%, 300px);
+  max-width: 480px;
+  form > div:first-child > div,
+  form input {
+    width: 100%;
+  }
   .lbl {
     font-weight: 600;
     font-size: var(--fs-sm);
@@ -514,21 +505,16 @@ const Picker = styled.div`
   }
 `;
 
-const ViewTabs: React.FC<{ view: View; onChange: (v: View) => void }> = ({
-  view,
-  onChange,
-}) => {
+const ViewTabs: React.FC<{ view: View; onChange: (v: View) => void }> = ({ view, onChange }) => {
   const box = useRef<HTMLDivElement>(null);
   // The library Tabs render plain buttons: give them type, their pressed state and test ids after each render.
   useEffect(() => {
-    box.current
-      ?.querySelectorAll<HTMLButtonElement>("button")
-      .forEach((b, i) => {
-        const v: View = i === 0 ? "steps" : "circuit";
-        b.type = "button";
-        b.setAttribute("aria-pressed", String(view === v));
-        b.dataset.testid = `toggle-${v}`;
-      });
+    box.current?.querySelectorAll<HTMLButtonElement>("button").forEach((b, i) => {
+      const v: View = i === 0 ? "steps" : "circuit";
+      b.type = "button";
+      b.setAttribute("aria-pressed", String(view === v));
+      b.dataset.testid = `toggle-${v}`;
+    });
   });
   return (
     <TabsBox ref={box} role="group" aria-label="Show progress as">
@@ -591,13 +577,7 @@ const OpenById: React.FC<{ onGo?: () => void }> = ({ onGo }) => {
           onChange={(e) => setV(e.target.value)}
         />
       </div>
-      <LibButton
-        variant="secondary"
-        text="Open"
-        type="submit"
-        disabled={!value || invalid}
-        style={{ marginTop: 24 }}
-      />
+      <LibButton variant="secondary" text="Open" type="submit" disabled={!value || invalid} style={{ marginTop: 24 }} />
     </form>
   );
 };
@@ -701,9 +681,7 @@ const FindBody: React.FC<{
                     data-testid={`request-option-${r.disputeId}`}
                   >
                     Request #{r.disputeId.toString()} ·{" "}
-                    {r.stage === "switched"
-                      ? `Ruled ${r.ruling === 1 ? "On" : "Off"}`
-                      : STAGE_LABEL[r.stage]}
+                    {r.stage === "switched" ? `Complete · ${r.ruling === 1 ? "On" : "Off"}` : STAGE_LABEL[r.stage]}
                   </Link>
                 </li>
               ))}
@@ -716,10 +694,7 @@ const FindBody: React.FC<{
 };
 
 /** One "Find or switch request" button that opens one panel with the request-ID field and "Your requests". */
-const FindRequest: React.FC<{ current?: bigint; stage?: string }> = ({
-  current,
-  stage,
-}) => {
+const FindRequest: React.FC<{ current?: bigint; stage?: string }> = ({ current, stage }) => {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDialogElement>(null);
   useEffect(() => {
@@ -747,13 +722,7 @@ const FindRequest: React.FC<{ current?: bigint; stage?: string }> = ({
           if (e.target === ref.current) setOpen(false);
         }}
       >
-        {open && (
-          <FindBody
-            current={current}
-            stage={stage}
-            onClose={() => setOpen(false)}
-          />
-        )}
+        {open && <FindBody current={current} stage={stage} onClose={() => setOpen(false)} />}
       </FindBox>
     </div>
   );
@@ -767,8 +736,7 @@ const Latest: React.FC = () => {
   const route = routeConfig(data.chains());
   const list = useMyRequests();
   useEffect(() => {
-    if (list.items && list.items.length)
-      nav(`/track/${list.items[0].disputeId.toString()}`, { replace: true });
+    if (list.items && list.items.length) nav(`/track/${list.items[0].disputeId.toString()}`, { replace: true });
   }, [list.items, nav]);
   const gate = walletGate({
     networkUp: true,
@@ -781,9 +749,7 @@ const Latest: React.FC = () => {
       <PageHead>
         <div>
           <h1>Track a request</h1>
-          <p>
-            Follow a request from sending to the court's decision and the bulb.
-          </p>
+          <p>Follow a request from sending to the court's decision and the bulb.</p>
         </div>
       </PageHead>
       <Panel>
@@ -793,7 +759,16 @@ const Latest: React.FC = () => {
             <p className="sub" style={{ margin: "6px 0 12px" }}>
               Or open any request by its ID. No wallet is needed to follow one.
             </p>
-            <WalletStrip gate={gate} />
+            <WalletStrip
+              gate={
+                gate.state === "disconnected"
+                  ? {
+                      ...gate,
+                      message: "Connect a wallet to see its requests, or enter a request ID below.",
+                    }
+                  : gate
+              }
+            />
           </>
         ) : list.state === "loading" ? (
           <p className="muted" role="status">
@@ -803,13 +778,7 @@ const Latest: React.FC = () => {
           <Callout tone="err" title="Could not load your requests">
             <p>{list.error}</p>
             <p style={{ marginTop: 8 }}>
-              <LibButton
-                small
-                text="Retry"
-                type="button"
-                onClick={list.retry}
-                data-testid="retry-list"
-              />
+              <LibButton small text="Retry" type="button" onClick={list.retry} data-testid="retry-list" />
             </p>
           </Callout>
         ) : (
@@ -831,10 +800,7 @@ const Latest: React.FC = () => {
   );
 };
 
-const SimulateCourt: React.FC<{ req: SwitchRequest; onSent: () => void }> = ({
-  req,
-  onSent,
-}) => {
+const SimulateCourt: React.FC<{ req: SwitchRequest; onSent: () => void }> = ({ req, onSent }) => {
   const { data } = useSetup();
   const [busy, setBusy] = useState<1 | 2 | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -876,10 +842,7 @@ const SimulateCourt: React.FC<{ req: SwitchRequest; onSent: () => void }> = ({
         />
       </div>
       {error && (
-        <p
-          role="alert"
-          style={{ color: "var(--err)", fontSize: "var(--fs-sm)" }}
-        >
+        <p role="alert" style={{ color: "var(--err)", fontSize: "var(--fs-sm)" }}>
           {error}
         </p>
       )}
@@ -888,13 +851,7 @@ const SimulateCourt: React.FC<{ req: SwitchRequest; onSent: () => void }> = ({
 };
 
 const stateIcon = (s: EntryState) =>
-  s === "done" ? (
-    <Icon.check />
-  ) : s === "fail" ? (
-    <Icon.alert />
-  ) : s === "cur" ? (
-    <Icon.clock />
-  ) : null;
+  s === "done" ? <Icon.check /> : s === "fail" ? <Icon.alert /> : s === "cur" ? <Icon.clock /> : null;
 
 const STATE_WORD: Record<EntryState, string> = {
   done: "Done",
@@ -910,9 +867,7 @@ const EntryRow: React.FC<{
   seen: number | undefined;
   names: { foreign: string; home: string };
 }> = ({ e, reports, seen, names }) => {
-  const doneReports = reports.filter(
-    (r) => r.report?.status === "reported",
-  ).length;
+  const doneReports = reports.filter((r) => r.report?.status === "reported").length;
   return (
     <li
       className={e.state}
@@ -932,15 +887,16 @@ const EntryRow: React.FC<{
           <div className="meta">
             {(e.state === "done" || e.state === "fail") && (
               <span className="tm">
-                {seen
-                  ? `Observed at ${clockTime(seen)}`
-                  : "Completed before this page opened"}
+                {e.state === "fail"
+                  ? seen
+                    ? `Pause observed at ${clockTime(seen)}`
+                    : "Already paused when this page opened"
+                  : seen
+                    ? `Observed at ${clockTime(seen)}`
+                    : "Completed before this page opened"}
               </span>
             )}
-            <Tag
-              as="div"
-              text={e.chain === "foreign" ? names.foreign : names.home}
-            />
+            <Tag as="div" text={e.chain === "foreign" ? names.foreign : names.home} />
           </div>
         </div>
         {(reports.length > 0 || e.txs.length > 0) && e.state !== "todo" && (
@@ -971,11 +927,7 @@ const EntryRow: React.FC<{
                 <summary>Transaction details</summary>
                 <TxRow>
                   {e.txs.map((t) => (
-                    <TxCopy
-                      key={t.hash + t.label}
-                      tx={t}
-                      testId={`log-tx-${e.key}`}
-                    />
+                    <TxCopy key={t.hash + t.label} tx={t} testId={`log-tx-${e.key}`} />
                   ))}
                 </TxRow>
               </details>
@@ -991,9 +943,7 @@ const VIEW_KEY = "veashi.track.view";
 type View = "steps" | "circuit";
 const readView = (): View => {
   try {
-    return window.localStorage.getItem(VIEW_KEY) === "circuit"
-      ? "circuit"
-      : "steps";
+    return window.localStorage.getItem(VIEW_KEY) === "circuit" ? "circuit" : "steps";
   } catch {
     return "steps";
   }
@@ -1025,7 +975,7 @@ const Tracked: React.FC<{ id: bigint }> = ({ id }) => {
   const load = useCallback(() => {
     return data.request(id).then(
       (r) => dispatch({ type: "loaded", req: r }),
-      (e) => dispatch({ type: "failed", error: plainError(e) }),
+      (e) => dispatch({ type: "failed", error: plainError(e) })
     );
   }, [data, id]);
 
@@ -1037,12 +987,9 @@ const Tracked: React.FC<{ id: bigint }> = ({ id }) => {
     firstRender.current = true;
     data.request(id).then(
       (r) => live && dispatch({ type: "loaded", req: r }),
-      (e) => live && dispatch({ type: "failed", error: plainError(e) }),
+      (e) => live && dispatch({ type: "failed", error: plainError(e) })
     );
-    const stop = data.watchRequest(
-      id,
-      (r) => live && dispatch({ type: "loaded", req: r }),
-    );
+    const stop = data.watchRequest(id, (r) => live && dispatch({ type: "loaded", req: r }));
     return () => {
       live = false;
       stop();
@@ -1058,7 +1005,7 @@ const Tracked: React.FC<{ id: bigint }> = ({ id }) => {
       () => data.request(id),
       HEALTH_MS,
       (r) => dispatch({ type: "loaded", req: r }),
-      (e) => dispatch({ type: "failed", error: plainError(e) }),
+      (e) => dispatch({ type: "failed", error: plainError(e) })
     );
   }, [data, id, done, req === undefined || req === null]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -1066,7 +1013,7 @@ const Tracked: React.FC<{ id: bigint }> = ({ id }) => {
     if (req?.paid.token === "usdc")
       data.quote(null, "usdc").then(
         (q) => setUsdcDecimals(q.decimals),
-        () => {},
+        () => {}
       );
   }, [data, req?.paid.token]);
 
@@ -1086,7 +1033,7 @@ const Tracked: React.FC<{ id: bigint }> = ({ id }) => {
       data,
       owner,
       () => live,
-      (read) => setBulbStored({ owner, read }),
+      (read) => setBulbStored({ owner, read })
     );
     return () => {
       live = false;
@@ -1094,23 +1041,14 @@ const Tracked: React.FC<{ id: bigint }> = ({ id }) => {
     };
   }, [data, owner, switched, req?.updatedAt, bulbTry]);
   // what was read for another request's owner is not shown; unknown is neither on nor off
-  const bulbRead: BulbRead =
-    owner && bulbStored && bulbStored.owner === owner
-      ? bulbStored.read
-      : { kind: "loading" };
-  const mine =
-    !!owner &&
-    !!wallet.address &&
-    wallet.address.toLowerCase() === owner.toLowerCase();
+  const bulbRead: BulbRead = owner && bulbStored && bulbStored.owner === owner ? bulbStored.read : { kind: "loading" };
+  const mine = !!owner && !!wallet.address && wallet.address.toLowerCase() === owner.toLowerCase();
 
   const model = useMemo(
     () => (req ? requestModel(req, oracles, names, bulbRead, mine) : null),
-    [req, oracles, route, bulbRead, mine],
+    [req, oracles, route, bulbRead, mine]
   ); // eslint-disable-line react-hooks/exhaustive-deps
-  const entries = useMemo(
-    () => (req ? logEntries(req, oracles, names) : []),
-    [req, oracles, route],
-  ); // eslint-disable-line react-hooks/exhaustive-deps
+  const entries = useMemo(() => (req ? logEntries(req, oracles, names) : []), [req, oracles, route]); // eslint-disable-line react-hooks/exhaustive-deps
   // Times are when this page saw each step happen; steps already done when it opened were completed before.
   const now = Date.now();
   for (const e of entries)
@@ -1165,9 +1103,7 @@ const Tracked: React.FC<{ id: bigint }> = ({ id }) => {
       <Shell>
         {head(`No request #${id.toString()}`)}
         <Panel>
-          <p className="sub">
-            There is no request with this ID on {names.foreign}.
-          </p>
+          <p className="sub">There is no request with this ID on {names.foreign}.</p>
         </Panel>
       </Shell>
     );
@@ -1186,29 +1122,16 @@ const Tracked: React.FC<{ id: bigint }> = ({ id }) => {
   const paused = req.stage === "failed" ? pausedModel(req, names) : null;
   const tokenDecimals = req.paid.token === "usdc" ? usdcDecimals : 18;
   const symbol = req.paid.token === "usdc" ? "USDC" : "ETH";
-  const oName = (oid: number) =>
-    oracles.find((o) => o.id === oid)?.name ?? `Oracle ${oid}`;
-  const doneCount = entries.filter(
-    (e) => !e.report && e.state === "done",
-  ).length;
+  const oName = (oid: number) => oracles.find((o) => o.id === oid)?.name ?? `Oracle ${oid}`;
+  const doneCount = entries.filter((e) => !e.report && e.state === "done").length;
   const bulb = model?.bulb ?? "waiting";
   const stageEntries = entries.filter((e) => !e.report);
   const reportsFor = (key: string) =>
-    entries.filter(
-      (e) =>
-        e.report &&
-        e.report.leg === (key === "dispute-relaying" ? "dispute" : "ruling"),
-    );
+    entries.filter((e) => e.report && e.report.leg === (key === "dispute-relaying" ? "dispute" : "ruling"));
 
   const statusLine = (
     <Status $tone={n.status} data-testid="track-stage" data-stage={req.stage}>
-      {n.status === "ok" ? (
-        <Icon.check />
-      ) : n.status === "err" ? (
-        <Icon.alert />
-      ) : (
-        <Icon.clock />
-      )}
+      {n.status === "ok" ? <Icon.check /> : n.status === "err" ? <Icon.alert /> : <Icon.clock />}
       {n.statusText}
       {n.counts ? ` · ${n.counts}` : ""}
     </Status>
@@ -1238,11 +1161,7 @@ const Tracked: React.FC<{ id: bigint }> = ({ id }) => {
         </div>
       )}
 
-      <NowPanel
-        aria-label="Current status"
-        data-testid="now"
-        aria-live="polite"
-      >
+      <NowPanel aria-label="Current status" data-testid="now" aria-live="polite">
         <BulbSvg state={bulb} />
         <div className="main">
           <p
@@ -1259,14 +1178,16 @@ const Tracked: React.FC<{ id: bigint }> = ({ id }) => {
                 <dt>{n.bulbNow.label}</dt>
                 <dd data-testid="bulb-now">
                   {n.bulbNow.value}
-                  {n.bulbNow.differs && (
-                    <span className="differs"> · {n.bulbNow.differs}</span>
-                  )}
+                  {n.bulbNow.differs && <span className="differs"> · {n.bulbNow.differs}</span>}
                 </dd>
               </>
             )}
-            <dt>Next</dt>
-            <dd>{n.next}</dd>
+            {n.action !== "simulate" && (
+              <>
+                <dt>Next</dt>
+                <dd>{n.next}</dd>
+              </>
+            )}
           </dl>
           {paused && (
             <Paused data-testid="paused">
@@ -1292,18 +1213,14 @@ const Tracked: React.FC<{ id: bigint }> = ({ id }) => {
               </div>
               {paused.detail && (
                 <Disclosure summary="Technical details">
-                  <pre style={{ whiteSpace: "pre-wrap", margin: 0 }}>
-                    {paused.detail}
-                  </pre>
+                  <pre style={{ whiteSpace: "pre-wrap", margin: 0 }}>{paused.detail}</pre>
                 </Disclosure>
               )}
             </Paused>
           )}
         </div>
         <div className="actions">
-          {n.action === "simulate" && (
-            <SimulateCourt req={req} onSent={() => setRuled(true)} />
-          )}
+          {n.action === "simulate" && <SimulateCourt req={req} onSent={() => setRuled(true)} />}
           {req.stage === "switched" && bulbRead.kind === "failed" && (
             <LibButton
               small
@@ -1314,13 +1231,46 @@ const Tracked: React.FC<{ id: bigint }> = ({ id }) => {
               data-testid="bulb-retry"
             />
           )}
-          {req.stage === "switched" && (
-            <ButtonLink to="/">Send another request</ButtonLink>
-          )}
+          {req.stage === "switched" && <ButtonLink to="/">Send another request</ButtonLink>}
         </div>
       </NowPanel>
 
       <Stack>
+        <Panel aria-labelledby="progress-h" data-testid="progress">
+          <PanelHead>
+            <div>
+              <h2 id="progress-h">Progress</h2>
+              <p>
+                {doneCount} of 6 steps done.
+                {view === "steps" ? " Expand reports or transaction details below." : ""}
+              </p>
+            </div>
+            <ViewTabs view={view} onChange={setView} />
+          </PanelHead>
+          {view === "steps" ? (
+            <div data-testid="lifecycle-summary">
+              <Log data-testid="event-log" aria-label="Steps of this request">
+                {stageEntries.map((e) => (
+                  <EntryRow
+                    key={e.key}
+                    e={e}
+                    reports={e.key === "dispute-relaying" || e.key === "ruling-relaying" ? reportsFor(e.key) : []}
+                    seen={seen.current.get(e.key) || undefined}
+                    names={names}
+                  />
+                ))}
+              </Log>
+            </div>
+          ) : (
+            model && (
+              <Circuit
+                model={model}
+                names={names}
+                label={`Circuit of request ${req.disputeId} from ${names.foreign} to Kleros Court on ${names.home} and back. ${n.title}`}
+              />
+            )
+          )}
+        </Panel>
         <Panel className="record" id="track-route" aria-labelledby="facts-h">
           <PanelHead>
             <div>
@@ -1328,15 +1278,13 @@ const Tracked: React.FC<{ id: bigint }> = ({ id }) => {
             </div>
           </PanelHead>
           <Facts data-testid="dispute-record">
-            <div>
+            <div className="wide">
               <dt>Route</dt>
               <dd data-testid="record-route">{`${names.foreign} → ${names.home} → ${names.foreign} · Local devnet`}</dd>
             </div>
             <div>
               <dt>Paid</dt>
-              <dd className="mono">
-                {formatAmount(req.paid.amount, tokenDecimals, symbol)}
-              </dd>
+              <dd className="mono">{formatAmount(req.paid.amount, tokenDecimals, symbol)}</dd>
             </div>
             <div>
               <dt>Requester</dt>
@@ -1348,7 +1296,7 @@ const Tracked: React.FC<{ id: bigint }> = ({ id }) => {
                 </Copiable>
               </dd>
             </div>
-            <div>
+            <div className="wide">
               <dt>Selected oracles</dt>
               <dd>
                 <Strands>
@@ -1364,15 +1312,12 @@ const Tracked: React.FC<{ id: bigint }> = ({ id }) => {
             <div>
               <dt>Agreement</dt>
               <dd>
-                {req.selection.threshold} of {req.selection.oracleIds.length}{" "}
-                must agree
+                {req.selection.threshold} of {req.selection.oracleIds.length} must agree
               </dd>
             </div>
             <div>
               <dt>Decision</dt>
-              <dd data-testid="ruling">
-                {req.ruling === 0 ? "Not decided yet" : rulingName(req.ruling)}
-              </dd>
+              <dd data-testid="ruling">{req.ruling === 0 ? "Not decided yet" : rulingName(req.ruling)}</dd>
             </div>
             <div>
               <dt>Request ID</dt>
@@ -1383,38 +1328,29 @@ const Tracked: React.FC<{ id: bigint }> = ({ id }) => {
             <div>
               <dt>Court case ID</dt>
               <dd data-testid="home-dispute">
-                {req.homeDisputeId !== null
-                  ? `#${req.homeDisputeId.toString()} · ${names.home}`
-                  : "Not created yet"}
+                {req.homeDisputeId !== null ? `#${req.homeDisputeId.toString()} · ${names.home}` : "Not created yet"}
               </dd>
             </div>
           </Facts>
-          <Disclosure
-            summary="Technical details"
-            data-testid="technical-details"
-          >
+          <Disclosure summary="Technical details" data-testid="technical-details">
             <div style={{ display: "grid", gap: 14 }}>
               <div>
                 <h3>Contracts</h3>
                 <p className="mono">
-                  ForeignGateway {env.addresses.foreign.ForeignGateway ?? ""} ·{" "}
-                  {names.foreign} · dispute #{req.disputeId.toString()}
+                  ForeignGateway {env.addresses.foreign.ForeignGateway ?? ""} · {names.foreign} · dispute #
+                  {req.disputeId.toString()}
                 </p>
                 <p className="mono" data-testid="tech-home">
-                  HomeGateway {env.addresses.home.HomeGateway ?? ""} ·
-                  KlerosCoreRuler {env.addresses.home.KlerosCoreRuler ?? ""} ·{" "}
-                  {names.home} ·{" "}
-                  {req.homeDisputeId !== null
-                    ? `dispute #${req.homeDisputeId.toString()}`
-                    : "not created yet"}
+                  HomeGateway {env.addresses.home.HomeGateway ?? ""} · KlerosCoreRuler{" "}
+                  {env.addresses.home.KlerosCoreRuler ?? ""} · {names.home} ·{" "}
+                  {req.homeDisputeId !== null ? `dispute #${req.homeDisputeId.toString()}` : "not created yet"}
                 </p>
               </div>
               <div>
                 <h3>Oracles</h3>
                 {req.selection.oracleIds.map((oid) => (
                   <p key={oid} className="mono">
-                    {oName(oid)} · oracle id {oid} ·{" "}
-                    {oracles.find((o) => o.id === oid)?.via ?? ""}
+                    {oName(oid)} · oracle id {oid} · {oracles.find((o) => o.id === oid)?.via ?? ""}
                   </p>
                 ))}
               </div>
@@ -1425,13 +1361,10 @@ const Tracked: React.FC<{ id: bigint }> = ({ id }) => {
                     {e.title}: {e.tech}
                   </p>
                 ))}
-                <p className="mono">
-                  Ruling code {req.ruling} (1 = On, 2 = Off)
-                </p>
+                <p className="mono">Ruling code {req.ruling} (1 = On, 2 = Off)</p>
                 {req.stage === "switched" && (
                   <p className="mono">
-                    LightbulbSwitched({shortAddress(req.owner)},{" "}
-                    {req.disputeId.toString()},{" "}
+                    LightbulbSwitched({shortAddress(req.owner)}, {req.disputeId.toString()},{" "}
                     {req.ruling === 1 ? "true" : "false"})
                   </p>
                 )}
@@ -1448,54 +1381,13 @@ const Tracked: React.FC<{ id: bigint }> = ({ id }) => {
                       data-hash={t.hash}
                       data-stage={t.stage}
                     >
-                      {t.chain === "foreign" ? names.foreign : names.home} ·{" "}
-                      {t.label} · {t.hash}
+                      {t.chain === "foreign" ? names.foreign : names.home} · {t.label} · {t.hash}
                     </span>
                   ))}
                 </TxRow>
               </div>
             </div>
           </Disclosure>
-        </Panel>
-        <Panel aria-labelledby="progress-h" data-testid="progress">
-          <PanelHead>
-            <div>
-              <h2 id="progress-h">Progress</h2>
-              <p>
-                {doneCount} of 6 steps done. Open a step for its oracle reports
-                and transactions.
-              </p>
-            </div>
-            <ViewTabs view={view} onChange={setView} />
-          </PanelHead>
-          {view === "steps" ? (
-            <div data-testid="lifecycle-summary">
-              <Log data-testid="event-log" aria-label="Steps of this request">
-                {stageEntries.map((e) => (
-                  <EntryRow
-                    key={e.key}
-                    e={e}
-                    reports={
-                      e.key === "dispute-relaying" ||
-                      e.key === "ruling-relaying"
-                        ? reportsFor(e.key)
-                        : []
-                    }
-                    seen={seen.current.get(e.key) || undefined}
-                    names={names}
-                  />
-                ))}
-              </Log>
-            </div>
-          ) : (
-            model && (
-              <Circuit
-                model={model}
-                names={names}
-                label={`Circuit of request ${req.disputeId} from ${names.foreign} to Kleros Court on ${names.home} and back. ${n.title}`}
-              />
-            )
-          )}
         </Panel>
       </Stack>
     </Shell>

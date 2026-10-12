@@ -106,21 +106,13 @@ export const RouteSection: React.FC<{
 }> = ({ gate, unavailable, onRetry, children }) => {
   const route = useRoute();
   return (
-    <Panel
-      id="network-route"
-      style={{ scrollMarginTop: "calc(var(--bar-h, 0px) + 8px)" }}
-      aria-labelledby="route-h"
-      data-testid="route-section"
-    >
+    <Panel id="network-route" style={{ scrollMarginTop: "calc(var(--bar-h, 0px) + 8px)" }} aria-labelledby="route-h" data-testid="route-section">
       <PanelHead>
         <div>
           <h2 id="route-h" data-step-heading>
             Network route
           </h2>
-          <p>
-            The ruling returns to {route.from.name}. Only this local route is
-            available.
-          </p>
+          <p>The ruling returns to {route.from.name}. Only this local route is available.</p>
         </div>
         <Badge data-testid="local-badge">
           Local devnet only
@@ -129,13 +121,11 @@ export const RouteSection: React.FC<{
       </PanelHead>
       <Cards>
         <Card $c="#0052ff" data-testid="chain-from">
-          <span className="label">Request from:</span>{" "}
-          <span className="value">{route.from.name} · Local devnet</span>
+          <span className="label">Request from:</span> <span className="value">{route.from.name} · Local devnet</span>
         </Card>
         <Arrow aria-hidden="true">→</Arrow>
         <Card $c="#28a0f0" data-testid="chain-to">
-          <span className="label">Court on:</span>{" "}
-          <span className="value">{route.to.name} · Local devnet</span>
+          <span className="label">Court on:</span> <span className="value">{route.to.name} · Local devnet</span>
         </Card>
       </Cards>
       <Disclosure summary="Network details" data-testid="network-details">
@@ -151,11 +141,7 @@ export const RouteSection: React.FC<{
         </Details>
       </Disclosure>
       <Wallet>
-        {unavailable ? (
-          <NetworkDown error={unavailable} onRetry={onRetry} />
-        ) : (
-          <WalletStrip gate={gate} />
-        )}
+        {unavailable ? <NetworkDown error={unavailable} onRetry={onRetry} /> : <WalletStrip gate={gate} />}
       </Wallet>
       {children}
     </Panel>

@@ -33,9 +33,7 @@ function useWalletState(): Wallet {
   const [error, setError] = useState<string | null>(null);
   // createWagmiConfig gives the injected connector(s) and, on the devnet build, the dev-account test connector.
   const injected = connectors.find((c) => c.type === "injected");
-  const test = env.testWallet
-    ? connectors.find((c) => c.type !== "injected")
-    : undefined;
+  const test = env.testWallet ? connectors.find((c) => c.type !== "injected") : undefined;
   const status: WalletState["status"] =
     account.status === "connected"
       ? account.chainId === foreignId
@@ -49,11 +47,7 @@ function useWalletState(): Wallet {
     try {
       await f();
     } catch (e) {
-      setError(
-        rejected && isRejection(e instanceof Error ? e.message : String(e))
-          ? rejected
-          : describeError(e).text,
-      );
+      setError(rejected && isRejection(e instanceof Error ? e.message : String(e)) ? rejected : describeError(e).text);
     }
   };
   return {
@@ -66,25 +60,15 @@ function useWalletState(): Wallet {
     isTest: !!test && account.connector?.id === test.id,
     busy: isPending || switching,
     error,
-    connectTest: () =>
-      run(() => connectAsync({ connector: test!, chainId: foreignId })),
+    connectTest: () => run(() => connectAsync({ connector: test!, chainId: foreignId })),
     connectInjected: () =>
       run(async () => {
-        if (!injected)
-          throw new Error(
-            "No browser wallet found. Install one, or use the test wallet on the local demo.",
-          );
+        if (!injected) throw new Error("No browser wallet found. Install one, or use the test wallet on the local demo.");
         try {
           await connectAsync({ connector: injected, chainId: foreignId });
         } catch (e) {
-          if (
-            /provider not found/i.test(
-              e instanceof Error ? e.message : String(e),
-            )
-          )
-            throw new Error(
-              "No browser wallet found. Install one, or use the test wallet on the local demo.",
-            );
+          if (/provider not found/i.test(e instanceof Error ? e.message : String(e)))
+            throw new Error("No browser wallet found. Install one, or use the test wallet on the local demo.");
           throw e;
         }
       }),
@@ -103,9 +87,7 @@ function useWalletState(): Wallet {
 const WalletContext = createContext<Wallet | null>(null);
 
 /** One wallet state for the whole app, so the top bar and the pages show the same account, network and errors. */
-export const WalletProvider: React.FC<{ children: React.ReactNode }> = ({
-  children,
-}) => {
+export const WalletProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const w = useWalletState();
   return <WalletContext.Provider value={w}>{children}</WalletContext.Provider>;
 };
@@ -157,16 +139,8 @@ export const WalletStrip: React.FC<{ gate: WalletGate }> = ({ gate }) => {
         <Copiable copiableContent={w.address} info="Copy address">
           <Addr title={w.address}>{shortAddress(w.address)}</Addr>
         </Copiable>
-        <Small>
-          {w.isTest ? "Local demo account · ready to pay" : "Ready to pay"}
-        </Small>
-        <LibButton
-          small
-          variant="secondary"
-          text="Disconnect"
-          type="button"
-          onClick={w.disconnect}
-        />
+        <Small>{w.isTest ? "Local demo account · ready to pay" : "Ready to pay"}</Small>
+        <LibButton small variant="secondary" text="Disconnect" type="button" onClick={w.disconnect} />
       </Row>
     );
   if (gate.state === "wrong-chain")
@@ -183,27 +157,14 @@ export const WalletStrip: React.FC<{ gate: WalletGate }> = ({ gate }) => {
           onClick={() => void w.switchToForeign()}
           data-testid="switch-chain"
         />
-        <LibButton
-          small
-          variant="secondary"
-          text="Disconnect"
-          type="button"
-          onClick={w.disconnect}
-        />
+        <LibButton small variant="secondary" text="Disconnect" type="button" onClick={w.disconnect} />
         {w.error && <Err role="alert">{w.error}</Err>}
       </Row>
     );
   return (
     <Row data-testid="wallet">
       {w.hasTestWallet && (
-        <span
-          style={{
-            display: "inline-flex",
-            gap: 8,
-            alignItems: "center",
-            flexWrap: "wrap",
-          }}
-        >
+        <span style={{ display: "inline-flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
           <LibButton
             variant="secondary"
             text="Use test wallet"
@@ -274,11 +235,7 @@ export const AccountControl: React.FC = () => {
   const route = routeConfig(data.chains());
   if (!w.address || w.status === "disconnected" || w.status === "connecting")
     return (
-      <span
-        data-testid="account-control"
-        className="muted"
-        style={{ fontSize: "var(--fs-sm)" }}
-      >
+      <span data-testid="account-control" className="muted" style={{ fontSize: "var(--fs-sm)" }}>
         {w.status === "connecting" ? "Connecting…" : "Not connected"}
       </span>
     );
@@ -288,26 +245,14 @@ export const AccountControl: React.FC = () => {
       <summary aria-label="Account and network">
         <span>{w.isTest ? "Test wallet" : "Wallet"}</span>
         <span className="mono">{shortAddress(w.address)}</span>
-        <span className={wrong ? "bad" : undefined}>
-          {wrong ? "Wrong network" : "Local"}
-        </span>
+        <span className={wrong ? "bad" : undefined}>{wrong ? "Wrong network" : "Local"}</span>
       </summary>
       <div className="panel">
-        <span>
-          {wrong
-            ? `Switch to ${route.fromLabel} to send.`
-            : `On ${route.fromLabel}`}
-        </span>
+        <span>{wrong ? `Switch to ${route.fromLabel} to send.` : `On ${route.fromLabel}`}</span>
         <Copiable copiableContent={w.address} info="Copy address">
           <Addr title={w.address}>{w.address}</Addr>
         </Copiable>
-        <LibButton
-          small
-          variant="secondary"
-          text="Disconnect"
-          type="button"
-          onClick={w.disconnect}
-        />
+        <LibButton small variant="secondary" text="Disconnect" type="button" onClick={w.disconnect} />
       </div>
     </Menu>
   );

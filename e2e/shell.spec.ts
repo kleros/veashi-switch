@@ -18,38 +18,15 @@ test("[scenario:track-help] How it works opens from the shell, explains the stag
   await page.goto("/track");
   const open = page.getByRole("button", { name: "How it works" });
   await open.click();
-  const dialog = page.getByRole("dialog", {
-    name: "How a switch request works",
-  });
+  const dialog = page.getByRole("dialog", { name: "How a switch request works" });
   await expect(dialog).toBeVisible();
   await expect(dialog.getByTestId("help-stages").locator("li")).toHaveCount(4);
-  for (const stage of [
-    "Send the request.",
-    "Oracles carry it to the court.",
-    "The court decides.",
-    "The decision comes back",
-  ])
+  for (const stage of ["Send the request.", "Oracles carry it to the court.", "The court decides.", "The decision comes back"])
     await expect(dialog).toContainText(stage);
-  for (const term of [
-    "Oracle",
-    "Agreement needed",
-    "Automatic relay service",
-    "Court case",
-    "Request fee",
-  ])
-    await expect(
-      dialog.getByTestId("help-terms").getByText(term, { exact: true }),
-    ).toBeVisible();
+  for (const term of ["Oracle", "Agreement needed", "Automatic relay service", "Court case", "Request fee"])
+    await expect(dialog.getByTestId("help-terms").getByText(term, { exact: true })).toBeVisible();
   const text = await dialog.innerText();
-  for (const re of [
-    /keeper/i,
-    /HomeGateway/i,
-    /Higher is safer/i,
-    /On \(1\)/i,
-    /Off \(2\)/i,
-    /You send one transaction/i,
-    /Your part is done/i,
-  ])
+  for (const re of [/keeper/i, /HomeGateway/i, /Higher is safer/i, /On \(1\)/i, /Off \(2\)/i, /You send one transaction/i, /Your part is done/i])
     expect(text).not.toMatch(re);
   await attachScreenshot(page, testInfo, "track-help");
 
@@ -88,16 +65,10 @@ test("[scenario:track-simulate-court] the status panel above the circuit asks yo
   await attachScreenshot(page, testInfo, "track-simulate-court");
 
   await on.click();
-  await expect(now).toContainText(
-    "Decision submitted. Waiting for return delivery…",
-  );
+  await expect(now).toContainText("Decision submitted. Waiting for return delivery…");
   await expect(on).toHaveCount(0);
   await expectPlainText(page, "Track after the decision");
-  await expect(page.getByTestId("track-stage")).toHaveAttribute(
-    "data-stage",
-    "switched",
-    { timeout: 120_000 },
-  );
+  await expect(page.getByTestId("track-stage")).toHaveAttribute("data-stage", "switched", { timeout: 120_000 });
 });
 
 test("[scenario:track-mobile-bulb] at 375 px the bulb, the status and the next action are in view; the lifecycle is a list", async ({
@@ -121,9 +92,7 @@ test("[scenario:track-mobile-bulb] at 375 px the bulb, the status and the next a
   await page.evaluate(() => window.scrollTo(0, 0));
   await inView("bulb", "bulb");
   await inView("now-title", "status");
-  await expect(page.getByTestId("now")).toContainText(
-    "Your turn: simulate the court decision",
-  );
+  await expect(page.getByTestId("now")).toContainText("Your turn: simulate the court decision");
   for (const name of ["Decide On", "Decide Off"]) {
     const box = (await page.getByRole("button", { name }).boundingBox())!;
     expect(box.y + box.height, `${name} is in view`).toBeLessThanOrEqual(812);
@@ -131,26 +100,18 @@ test("[scenario:track-mobile-bulb] at 375 px the bulb, the status and the next a
     expect(box.height).toBeGreaterThanOrEqual(44);
   }
   // Progress defaults to Steps, a vertical list of the six stages; the SVG waits behind "Circuit".
-  await expect(page.getByTestId("toggle-steps")).toHaveAttribute(
-    "aria-pressed",
-    "true",
-  );
+  await expect(page.getByTestId("toggle-steps")).toHaveAttribute("aria-pressed", "true");
   await expect(page.getByTestId("lifecycle-summary")).toBeVisible();
-  await expect(
-    page.getByTestId("event-log").locator(":scope > li"),
-  ).toHaveCount(6);
+  await expect(page.getByTestId("event-log").locator(":scope > li")).toHaveCount(6);
   await expect(page.getByTestId("circuit")).toHaveCount(0);
-  expect(
-    await page.evaluate(() => document.documentElement.scrollWidth),
-  ).toBeLessThanOrEqual(375);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(375);
 
   // Touch targets: icon buttons, the full-circuit toggle, the copy buttons and the oracle rows are 44 px or more.
   const small: string[] = [];
   for (const sel of ["button:visible"]) {
     for (const el of await page.locator(sel).all()) {
       const b = await el.boundingBox();
-      if (b && (b.height < 43.5 || b.width < 43.5))
-        small.push(`${sel} ${Math.round(b.width)}x${Math.round(b.height)}`);
+      if (b && (b.height < 43.5 || b.width < 43.5)) small.push(`${sel} ${Math.round(b.width)}x${Math.round(b.height)}`);
     }
   }
   expect(small, "targets under 44 px").toEqual([]);
@@ -158,36 +119,22 @@ test("[scenario:track-mobile-bulb] at 375 px the bulb, the status and the next a
 
   await showCircuit(page);
   await expect(page.getByTestId("circuit")).toBeVisible();
-  await expect(
-    page.getByRole("button", { name: "Scroll the circuit right" }),
-  ).toBeVisible();
+  await expect(page.getByRole("button", { name: "Scroll the circuit right" })).toBeVisible();
   const scroll = page.getByTestId("circuit-scroll");
   expect(await scroll.evaluate((el) => el.scrollLeft)).toBe(0); // starts at the bulb
   await page.getByRole("button", { name: "Scroll the circuit right" }).click();
-  await expect
-    .poll(async () => scroll.evaluate((el) => el.scrollLeft))
-    .toBeGreaterThan(0);
+  await expect.poll(async () => scroll.evaluate((el) => el.scrollLeft)).toBeGreaterThan(0);
 
   await page.getByRole("button", { name: "Decide On" }).click();
-  await expect(page.getByTestId("track-stage")).toHaveAttribute(
-    "data-stage",
-    "switched",
-    { timeout: 120_000 },
-  );
+  await expect(page.getByTestId("track-stage")).toHaveAttribute("data-stage", "switched", { timeout: 120_000 });
   await expect(page.getByTestId("bulb")).toHaveAttribute("data-state", "on");
   await expectPlainText(page, "Track at 375 px");
 });
 
-async function trackUntilCourtMobile(
-  page: import("@playwright/test").Page,
-  id: string,
-) {
+async function trackUntilCourtMobile(page: import("@playwright/test").Page, id: string) {
   await page.getByRole("link", { name: "Track request" }).click();
   await expect(page).toHaveURL(new RegExp(`/track/${id}$`));
-  await expect(page.getByTestId("now")).toContainText(
-    "Your turn: simulate the court decision",
-    { timeout: 120_000 },
-  );
+  await expect(page.getByTestId("now")).toContainText("Your turn: simulate the court decision", { timeout: 120_000 });
 }
 
 // Not a policy scenario: the self-report's evidence for phone width, both themes and reduced motion.
@@ -198,38 +145,19 @@ test("layout at 375 px in dark and light, the circuit scrolls sideways, the bulb
   await page.emulateMedia({ reducedMotion: "reduce" });
   await page.goto("/");
   await showCircuit(page);
-  await expect(
-    page.getByText("Use the arrows or swipe to follow the whole circuit."),
-  ).toBeVisible();
+  await expect(page.getByText("Use the arrows or swipe to follow the whole circuit.")).toBeVisible();
   const scroll = page.getByTestId("circuit-scroll");
-  const overflow = await scroll.evaluate((el) => ({
-    sw: el.scrollWidth,
-    cw: el.clientWidth,
-  }));
+  const overflow = await scroll.evaluate((el) => ({ sw: el.scrollWidth, cw: el.clientWidth }));
   expect(overflow.sw).toBeGreaterThan(overflow.cw);
   // The page itself does not scroll sideways; only the circuit does.
-  expect(
-    await page.evaluate(() => document.documentElement.scrollWidth),
-  ).toBeLessThanOrEqual(375);
-  await page.screenshot({
-    path: testInfo.outputPath("layout-375-dark.png"),
-    fullPage: true,
-  });
-  await testInfo.attach("layout-375-dark", {
-    path: testInfo.outputPath("layout-375-dark.png"),
-    contentType: "image/png",
-  });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(375);
+  await page.screenshot({ path: testInfo.outputPath("layout-375-dark.png"), fullPage: true });
+  await testInfo.attach("layout-375-dark", { path: testInfo.outputPath("layout-375-dark.png"), contentType: "image/png" });
 
   await page.getByTestId("theme-toggle").click();
   await expect(page.locator("html")).toHaveAttribute("data-theme", "light");
-  await page.screenshot({
-    path: testInfo.outputPath("layout-375-light.png"),
-    fullPage: true,
-  });
-  await testInfo.attach("layout-375-light", {
-    path: testInfo.outputPath("layout-375-light.png"),
-    contentType: "image/png",
-  });
+  await page.screenshot({ path: testInfo.outputPath("layout-375-light.png"), fullPage: true });
+  await testInfo.attach("layout-375-light", { path: testInfo.outputPath("layout-375-light.png"), contentType: "image/png" });
 
   // Reduced motion: a waiting bulb's filament does not flicker and the strands do not pulse.
   const anim = await page.evaluate(() => {
@@ -244,29 +172,20 @@ test("layout at 375 px in dark and light, the circuit scrolls sideways, the bulb
 const escapeRe = (t: string) => t.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
 /** Each of the six stage titles appears once: as exact element text and as a whole phrase in the page text. */
-async function expectStageTitlesOnce(
-  page: import("@playwright/test").Page,
-  label: string,
-) {
+async function expectStageTitlesOnce(page: import("@playwright/test").Page, label: string) {
   await showSteps(page);
   const titles = await page.getByTestId("stage-title").allTextContents();
   expect(titles, `${label}: six stages`).toHaveLength(6);
   const text = await page.evaluate(() => document.body.innerText);
   for (const t of titles) {
-    await expect(
-      page.getByText(t, { exact: true }),
-      `${label}: "${t}" as element text`,
-    ).toHaveCount(1);
-    const hits =
-      text.match(new RegExp(`(^|\\W)${escapeRe(t)}(?=$|\\W)`, "g")) ?? [];
+    await expect(page.getByText(t, { exact: true }), `${label}: "${t}" as element text`).toHaveCount(1);
+    const hits = text.match(new RegExp(`(^|\\W)${escapeRe(t)}(?=$|\\W)`, "g")) ?? [];
     expect(hits.length, `${label}: "${t}" in the page text`).toBe(1);
   }
-  await expect(page.getByRole("heading", { name: /event log/i })).toHaveCount(
-    0,
-  );
+  await expect(page.getByRole("heading", { name: /event log/i })).toHaveCount(0);
 }
 
-test("[scenario:track-layout] the new Track layout: nothing under the bar, one stage list, one find panel, summary above progress", async ({
+test("[scenario:track-layout] the new Track layout: nothing under the bar, one stage list, one find panel, summary below progress", async ({
   page,
 }, testInfo) => {
   test.setTimeout(480_000);
@@ -282,9 +201,7 @@ test("[scenario:track-layout] the new Track layout: nothing under the bar, one s
   // Open the newer request from the confirmation (the wallet stays connected).
   await page.getByRole("link", { name: "Track request" }).click();
   await expect(page).toHaveURL(new RegExp(`/track/${second}$`));
-  await expect(page.getByTestId("track-title")).toHaveText(
-    `Request #${second}`,
-  );
+  await expect(page.getByTestId("track-title")).toHaveText(`Request #${second}`);
   const barBottom = async () => {
     const b = (await page.locator("header").first().boundingBox())!;
     return b.y + b.height;
@@ -296,12 +213,8 @@ test("[scenario:track-layout] the new Track layout: nothing under the bar, one s
   // One panel finds or switches requests.
   await page.getByRole("button", { name: "Find or switch request" }).click();
   await expect(page.locator("input#open-id")).toBeVisible();
-  await expect(page.getByTestId("my-requests")).toContainText(
-    `Request #${first}`,
-  );
-  await expect(page.getByTestId("my-requests")).toContainText(
-    `Request #${second}`,
-  );
+  await expect(page.getByTestId("my-requests")).toContainText(`Request #${first}`);
+  await expect(page.getByTestId("my-requests")).toContainText(`Request #${second}`);
   await page.getByTestId(`request-option-${first}`).click();
   await expect(page).toHaveURL(new RegExp(`/track/${first}$`));
   await expect(page.getByTestId("track-title")).toHaveText(`Request #${first}`);
@@ -309,48 +222,33 @@ test("[scenario:track-layout] the new Track layout: nothing under the bar, one s
   expect(await page.evaluate(() => window.scrollY)).toBe(0);
 
   // At court arrival: the stage titles once, the card above Progress, the summary to its right.
-  await expect(page.getByTestId("now")).toContainText(
-    "Your turn: simulate the court decision",
-    { timeout: 120_000 },
-  );
+  await expect(page.getByTestId("now")).toContainText("Your turn: simulate the court decision", { timeout: 120_000 });
   await expectStageTitlesOnce(page, "court arrival");
-  // One column (decisions.md [L11]): the summary under the card and above Progress, all on the same edges.
+  // One column (decisions.md [L11], [L12]): Progress under the card, the summary under Progress, all on the same edges.
   const card = (await page.getByTestId("now").boundingBox())!;
   const progress = (await page.getByTestId("progress").boundingBox())!;
   const summary = (await page.getByTestId("dispute-record").boundingBox())!;
-  expect(summary.y).toBeGreaterThanOrEqual(card.y + card.height - 1);
-  expect(progress.y).toBeGreaterThanOrEqual(summary.y + summary.height - 1);
+  expect(progress.y).toBeGreaterThanOrEqual(card.y + card.height - 1);
+  expect(summary.y).toBeGreaterThanOrEqual(progress.y + progress.height - 1);
   expect(Math.abs(progress.x - card.x)).toBeLessThan(2);
   expect(Math.abs(progress.width - card.width)).toBeLessThan(2);
   await attachScreenshot(page, testInfo, "track-layout");
 
   await page.getByRole("button", { name: "Decide On" }).click();
-  await expect(page.getByTestId("track-stage")).toHaveAttribute(
-    "data-stage",
-    "switched",
-    { timeout: 120_000 },
-  );
-  await expect(page.getByTestId("bulb")).toHaveAttribute(
-    "data-state",
-    /^(on|off)$/,
-    { timeout: 60_000 },
-  );
+  await expect(page.getByTestId("track-stage")).toHaveAttribute("data-stage", "switched", { timeout: 120_000 });
+  await expect(page.getByTestId("bulb")).toHaveAttribute("data-state", /^(on|off)$/, { timeout: 60_000 });
   await expectStageTitlesOnce(page, "after the bulb updated");
 
   // The fake setup keeps its requests in memory and loses them on a reload; it seeds request 1 (ruled On) for this.
   const res = await page.request.get("/devnet.json");
-  const fake =
-    !res.ok() || !(res.headers()["content-type"] ?? "").includes("json");
+  const fake = !res.ok() || !(res.headers()["content-type"] ?? "").includes("json");
   const target = fake ? "1" : first;
 
   // Steps or Circuit: the choice survives a reload.
   await page.getByTestId("toggle-circuit").click();
   await expect(page.getByTestId("circuit")).toBeVisible();
   await page.goto(`/track/${target}`);
-  await expect(page.getByTestId("toggle-circuit")).toHaveAttribute(
-    "aria-pressed",
-    "true",
-  );
+  await expect(page.getByTestId("toggle-circuit")).toHaveAttribute("aria-pressed", "true");
   await expect(page.getByTestId("circuit")).toBeVisible();
   await showSteps(page);
 
@@ -363,18 +261,10 @@ test("[scenario:track-layout] the new Track layout: nothing under the bar, one s
   ]) {
     await page.setViewportSize({ width, height });
     await page.goto(`/track/${target}`);
-    await expect(page.getByTestId("track-title")).toHaveText(
-      `Request #${target}`,
-    );
-    expect(
-      await page.evaluate(() => window.scrollY),
-      `scrollY at ${width} px`,
-    ).toBe(0);
+    await expect(page.getByTestId("track-title")).toHaveText(`Request #${target}`);
+    expect(await page.evaluate(() => window.scrollY), `scrollY at ${width} px`).toBe(0);
     const h = (await page.getByTestId("now-title").boundingBox())!;
-    expect(
-      h.y,
-      `status headline below the bar at ${width} px`,
-    ).toBeGreaterThanOrEqual(await barBottom());
+    expect(h.y, `status headline below the bar at ${width} px`).toBeGreaterThanOrEqual(await barBottom());
     await expectNoWrap(page, `Track at ${width} px`);
     await page.getByRole("button", { name: "Find or switch request" }).click();
     await expect(page.locator("input#open-id")).toBeVisible();

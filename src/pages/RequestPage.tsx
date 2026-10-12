@@ -1,38 +1,15 @@
-import React, {
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-} from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Checkbox, Copiable, Radio } from "@kleros/ui-components-library";
 import { useLocation } from "react-router-dom";
 import styled, { css, keyframes } from "styled-components";
-import type {
-  CostQuote,
-  Oracle,
-  OracleSelection,
-  PayToken,
-  SelectionError,
-  SwitchRequest,
-} from "../data";
+import type { CostQuote, Oracle, OracleSelection, PayToken, SelectionError, SwitchRequest } from "../data";
 import { Circuit } from "../components/Circuit";
 import { previewModel } from "../components/circuitModel";
 import { AGREEMENT_HINT, REQUEST_INTRO } from "../components/copy";
 import { costBreakdown } from "../components/costModel";
-import {
-  plainError,
-  sendFailure,
-  type SendFailure,
-} from "../components/errors";
+import { plainError, sendFailure, type SendFailure } from "../components/errors";
 import { shortHash } from "../components/format";
-import {
-  costStatus,
-  readBulb,
-  resolveBulbRead,
-  submissionActions,
-  type BulbRead,
-} from "../components/readState";
+import { costStatus, readBulb, resolveBulbRead, submissionActions, type BulbRead } from "../components/readState";
 import { RouteSection } from "../components/RouteSection";
 import { NetworkDown } from "../components/NetworkDown";
 import { quoteMatches, routeConfig, walletGate } from "../components/route";
@@ -163,8 +140,7 @@ const StepBox = styled.div<{ $dir: 1 | -1 | 0 }>`
   ${({ $dir }) =>
     $dir !== 0 &&
     css`
-      animation: ${$dir > 0 ? slideFromRight : slideFromLeft} 240ms
-        var(--ease-out);
+      animation: ${$dir > 0 ? slideFromRight : slideFromLeft} 240ms var(--ease-out);
     `}
   @media (prefers-reduced-motion: reduce) {
     animation: none;
@@ -185,8 +161,11 @@ const Footer = styled.div`
     min-width: 0;
     order: -1;
     width: 100%;
-    color: var(--err);
+    color: var(--text-2);
     font-size: var(--fs-sm);
+  }
+  .why.err {
+    color: var(--err);
   }
   button[data-testid="continue"] {
     margin-left: auto;
@@ -231,17 +210,8 @@ const Choice = styled.div`
   display: flex;
   gap: 16px;
   flex-wrap: wrap;
-  padding: 4px 0;
-  label {
-    min-height: 44px;
-    display: inline-flex;
-    align-items: center;
-    gap: 8px;
-    line-height: 1;
-  }
-  input[type="radio"] {
-    margin: 0;
-  }
+  align-items: center;
+  min-height: 44px;
 `;
 
 const Summary = styled.div`
@@ -255,16 +225,14 @@ const Summary = styled.div`
   border-radius: var(--r-lg);
   background: var(--surface-2);
   .names {
-    display: inline-flex;
-    gap: 6px 14px;
-    flex-wrap: wrap;
-    align-items: center;
     font-weight: 600;
+    line-height: 1.8;
   }
   .sw {
     display: inline-flex;
     gap: 6px;
     align-items: center;
+    white-space: nowrap;
   }
 `;
 
@@ -276,8 +244,7 @@ const OracleList = styled.ul`
   li {
     display: flex;
     align-items: center;
-    justify-content: space-between;
-    gap: 12px;
+    gap: 10px;
     min-height: 44px;
     padding: 0 4px;
     border-bottom: 1px solid var(--stroke);
@@ -286,7 +253,7 @@ const OracleList = styled.ul`
     border-bottom: 0;
   }
   li > label {
-    flex: 1;
+    flex: 0 1 auto;
     min-height: 44px;
     display: flex;
     align-items: center;
@@ -295,6 +262,7 @@ const OracleList = styled.ul`
     font-weight: 600;
   }
   .fee {
+    margin-left: auto;
     font-variant-numeric: tabular-nums;
     font-family: var(--font-code);
     font-size: var(--fs-sm);
@@ -352,10 +320,31 @@ const PayGrid = styled.div`
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr));
   gap: var(--gap-card) 48px;
-  > div:last-child {
-    display: flex;
-    flex-direction: column;
-    justify-content: flex-end;
+  .pay {
+    display: grid;
+    align-content: start;
+    gap: 8px;
+  }
+  .lbl {
+    font-weight: 600;
+    font-size: var(--fs-sm);
+  }
+`;
+
+/** The amount the Send button pays, set beside it. */
+const Total = styled.p`
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 16px;
+  margin: 8px 0 0;
+  padding-top: 10px;
+  border-top: 1px solid var(--stroke);
+  font-weight: 600;
+  .v {
+    font-family: var(--font-code);
+    font-size: var(--fs-lg);
+    font-variant-numeric: tabular-nums;
   }
 `;
 
@@ -416,8 +405,7 @@ const StepN = styled.span<{ $done: boolean }>`
   place-items: center;
   font-size: var(--fs-sm);
   font-weight: 700;
-  border: 1px solid
-    ${({ $done }) => ($done ? "transparent" : "var(--stroke-strong)")};
+  border: 1px solid ${({ $done }) => ($done ? "transparent" : "var(--stroke-strong)")};
   background: ${({ $done }) => ($done ? "var(--ok-bg)" : "transparent")};
   color: ${({ $done }) => ($done ? "var(--ok)" : "var(--text-2)")};
   svg {
@@ -460,14 +448,11 @@ function selectionMessage(err: SelectionError, oracles: Oracle[]): string {
   if (err.kind === "empty") return "Choose an oracle first.";
   if (err.kind === "threshold-too-high")
     return `You require ${err.threshold} oracles to agree, but only ${err.selected} ${err.selected === 1 ? "is" : "are"} selected. Select another oracle or lower the requirement.`;
-  const name =
-    oracles.find((o) => o.id === err.oracleId)?.name ??
-    `Oracle ${err.oracleId}`;
+  const name = oracles.find((o) => o.id === err.oracleId)?.name ?? `Oracle ${err.oracleId}`;
   return `${name} is disabled on the gateway. Choose another oracle.`;
 }
 
-const thresholdText = (k: number, n: number) =>
-  k > n ? `${k} required · ${n} selected` : `${k} of ${n} must agree`;
+const thresholdText = (k: number, n: number) => (k > n ? `${k} required · ${n} selected` : `${k} of ${n} must agree`);
 
 type Outcome = { ok: SwitchRequest } | { err: SendFailure } | null;
 
@@ -538,22 +523,17 @@ export const RequestPage: React.FC = () => {
   });
 
   const ids = useMemo(
-    () =>
-      mode === "default"
-        ? (defaults?.oracleIds ?? [])
-        : [...customIds].sort((a, b) => a - b),
-    [mode, defaults, customIds],
+    () => (mode === "default" ? (defaults?.oracleIds ?? []) : [...customIds].sort((a, b) => a - b)),
+    [mode, defaults, customIds]
   );
   const k = mode === "default" ? (defaults?.threshold ?? 0) : customK;
   const idsKey = ids.join(",");
-  const selection: OracleSelection | null =
-    mode === "default" ? null : { oracleIds: ids, threshold: k };
+  const selection: OracleSelection | null = mode === "default" ? null : { oracleIds: ids, threshold: k };
 
   const selError: SelectionError | null = useMemo(() => {
     if (!oracles || mode === "default") return null;
     if (ids.length === 0) return { kind: "empty" };
-    if (k > ids.length)
-      return { kind: "threshold-too-high", threshold: k, selected: ids.length };
+    if (k > ids.length) return { kind: "threshold-too-high", threshold: k, selected: ids.length };
     try {
       return data.validateSelection({ oracleIds: ids, threshold: k }, oracles);
     } catch {
@@ -565,9 +545,7 @@ export const RequestPage: React.FC = () => {
   // A failure goes away when the configuration changes; a sent request keeps its confirmation.
   useEffect(() => {
     // an unknown outcome stays: the first request may already be on chain, so its warning outlives edits
-    setOutcome((o) =>
-      o && ("ok" in o || o.err.kind === "unknown") ? o : null,
-    );
+    setOutcome((o) => (o && ("ok" in o || o.err.kind === "unknown") ? o : null));
     setAckAgain(false);
   }, [mode, idsKey, k, token]);
 
@@ -576,10 +554,7 @@ export const RequestPage: React.FC = () => {
     let live = true;
     setQuoteError(null);
     data
-      .quote(
-        mode === "default" ? null : { oracleIds: ids, threshold: k },
-        token,
-      )
+      .quote(mode === "default" ? null : { oracleIds: ids, threshold: k }, token)
       .then((q) => live && setQuote(q))
       .catch((e) => live && setQuoteError(plainError(e)));
     return () => {
@@ -598,7 +573,7 @@ export const RequestPage: React.FC = () => {
     let live = true;
     data.quote({ oracleIds: ids, threshold: ids.length }, token).then(
       (q) => live && setFeeQuote(q),
-      () => {},
+      () => {}
     );
     return () => {
       live = false;
@@ -607,8 +582,7 @@ export const RequestPage: React.FC = () => {
   }, [data, oracles, thresholdTooHigh, idsKey, token]);
 
   // Only a quote made for the configuration on screen is actionable.
-  const current =
-    !selError && quoteMatches(quote, { selection, token }) ? quote : null;
+  const current = !selError && quoteMatches(quote, { selection, token }) ? quote : null;
   const updating = !!oracles && !selError && !current && !quoteError;
 
   const refreshWalletReads = useCallback(() => {
@@ -622,10 +596,7 @@ export const RequestPage: React.FC = () => {
   useEffect(refreshWalletReads, [refreshWalletReads]);
 
   // The bulb read belongs to one account: a read for another account is cleared and obsolete responses are ignored.
-  const bulbOwner =
-    (wallet.ready || wallet.status === "wrong-chain") && wallet.address
-      ? wallet.address
-      : null;
+  const bulbOwner = (wallet.ready || wallet.status === "wrong-chain") && wallet.address ? wallet.address : null;
   useEffect(() => {
     if (!bulbOwner) return;
     let live = true;
@@ -633,7 +604,7 @@ export const RequestPage: React.FC = () => {
       data,
       bulbOwner,
       () => live,
-      (read) => setBulbStored({ owner: bulbOwner, read }),
+      (read) => setBulbStored({ owner: bulbOwner, read })
     );
     return () => {
       live = false;
@@ -664,14 +635,11 @@ export const RequestPage: React.FC = () => {
     updating,
     hadQuote: !!quote,
   });
-  const oracleName = (id: number) =>
-    oracles?.find((o) => o.id === id)?.name ?? `Oracle ${id}`;
+  const oracleName = (id: number) => oracles?.find((o) => o.id === id)?.name ?? `Oracle ${id}`;
   const breakdown = current ? costBreakdown(current, oracleName) : null;
   const total = breakdown?.total ?? null;
 
-  const selectedNames = (oracles ?? [])
-    .filter((o) => ids.includes(o.id))
-    .map((o) => o.name);
+  const selectedNames = (oracles ?? []).filter((o) => ids.includes(o.id)).map((o) => o.name);
   const summaryText =
     mode === "default"
       ? `Default selection · ${selectedNames.join(", ")} · ${k} must agree`
@@ -684,8 +652,7 @@ export const RequestPage: React.FC = () => {
     setSubmitted(total);
     try {
       await data.approveUsdc(current.total);
-      if (wallet.address)
-        setAllowance(await data.usdcAllowance(wallet.address));
+      if (wallet.address) setAllowance(await data.usdcAllowance(wallet.address));
     } catch (e) {
       setApproveError(sendFailure(e, "approve"));
     } finally {
@@ -733,8 +700,7 @@ export const RequestPage: React.FC = () => {
     setReached((r) => (n > r ? n : r));
   };
   const selectionOk = !!oracles && !!defaults && !selError;
-  const canGo = (n: 1 | 2 | 3) =>
-    !busy && (n <= step || (n <= reached && (n < 3 || selectionOk)));
+  const canGo = (n: 1 | 2 | 3) => !busy && (n <= step || (n <= reached && (n < 3 || selectionOk)));
 
   // Focus moves to the new step's heading on every step change (and to the confirmation once sent).
   const firstFocus = useRef(true);
@@ -743,18 +709,14 @@ export const RequestPage: React.FC = () => {
       firstFocus.current = false;
       return;
     }
-    const el = root.current?.querySelector<HTMLElement>(
-      '[data-step-heading], [data-testid="request-success"] h3',
-    );
+    const el = root.current?.querySelector<HTMLElement>('[data-step-heading], [data-testid="request-success"] h3');
     if (!el) return;
     el.setAttribute("tabindex", "-1");
     el.focus({ preventScroll: true });
   }, [step, sentOk]);
 
   const toggleOracle = (id: number, on: boolean) =>
-    setCustomIds((cur) =>
-      on ? [...new Set([...cur, id])] : cur.filter((x) => x !== id),
-    );
+    setCustomIds((cur) => (on ? [...new Set([...cur, id])] : cur.filter((x) => x !== id)));
 
   const customize = () => {
     if (defaults) {
@@ -767,18 +729,13 @@ export const RequestPage: React.FC = () => {
   const model = useMemo(
     () => previewModel(oracles ?? [], ids, k, bulbRead, names),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [oracles, idsKey, k, bulbRead, route],
+    [oracles, idsKey, k, bulbRead, route]
   );
 
-  const feeBreakdown =
-    breakdown ?? (feeQuote ? costBreakdown(feeQuote, oracleName) : null);
-  const feeOf = (id: number) =>
-    feeBreakdown?.lines.find((l) => l.oracleId === id)?.text ?? "–";
+  const feeBreakdown = breakdown ?? (feeQuote ? costBreakdown(feeQuote, oracleName) : null);
+  const feeOf = (id: number) => feeBreakdown?.lines.find((l) => l.oracleId === id)?.text ?? "–";
   const successTx =
-    outcome && "ok" in outcome
-      ? (outcome.ok.txs.find((x) => x.stage === "submitted") ??
-        outcome.ok.txs[0])
-      : null;
+    outcome && "ok" in outcome ? (outcome.ok.txs.find((x) => x.stage === "submitted") ?? outcome.ok.txs[0]) : null;
 
   const STEPS: { n: 1 | 2 | 3; label: string }[] = [
     { n: 1, label: "Network route" },
@@ -789,7 +746,9 @@ export const RequestPage: React.FC = () => {
   const continueReason =
     step === 2
       ? !oracles
-        ? "Loading oracles…"
+        ? loadError
+          ? "Could not load oracles"
+          : "Loading oracles…"
         : selError
           ? selectionMessage(selError, oracles)
           : null
@@ -816,12 +775,8 @@ export const RequestPage: React.FC = () => {
   const usdcSteps = (
     <TokenSteps aria-label="Paying in USDC takes two transactions">
       <li data-testid="usdc-step-approve" data-done={sentOk || covered}>
-        <StepN $done={sentOk || covered}>
-          {sentOk || covered ? <Icon.check /> : "1"}
-        </StepN>
-        {sentOk || covered
-          ? "USDC approved"
-          : `Allow this app to spend ${total ?? "the request fee"}`}
+        <StepN $done={sentOk || covered}>{sentOk || covered ? <Icon.check /> : "1"}</StepN>
+        {sentOk || covered ? "USDC approved" : `Allow this app to spend ${total ?? "the request fee"}`}
       </li>
       <li data-testid="usdc-step-send" data-done={sentOk}>
         <StepN $done={sentOk}>{sentOk ? <Icon.check /> : "2"}</StepN>
@@ -840,18 +795,11 @@ export const RequestPage: React.FC = () => {
     </Disclosure>
   );
 
-  const errorCallout = (
-    title: string,
-    f: SendFailure,
-    testId: string,
-    summary?: boolean,
-  ) => (
+  const errorCallout = (title: string, f: SendFailure, testId: string, summary?: boolean) => (
     <Callout tone="err" title={title} data-testid={testId}>
       <p>{f.message}</p>
       <p>{f.advice}</p>
-      {summary && submitted && (
-        <p data-testid="submitted-summary">Submitted: {submitted}</p>
-      )}
+      {summary && submitted && <p data-testid="submitted-summary">Submitted: {submitted}</p>}
       {f.detail && (
         <Disclosure summary="Technical details">
           <pre style={{ whiteSpace: "pre-wrap", margin: 0 }}>{f.detail}</pre>
@@ -862,18 +810,9 @@ export const RequestPage: React.FC = () => {
 
   const stepOne = (
     <>
-      <RouteSection
-        gate={gate}
-        unavailable={loadError}
-        onRetry={() => setAttempt((a) => a + 1)}
-      >
+      <RouteSection gate={gate} unavailable={loadError} onRetry={() => setAttempt((a) => a + 1)}>
         <Footer>
-          <LibButton
-            type="button"
-            text="Continue"
-            onClick={() => goTo(2)}
-            data-testid="continue"
-          />
+          <LibButton type="button" text="Continue" onClick={() => goTo(2)} data-testid="continue" />
         </Footer>
       </RouteSection>
     </>
@@ -886,11 +825,7 @@ export const RequestPage: React.FC = () => {
           <h2 id="oracles-h" data-step-heading>
             Choose oracles
           </h2>
-          <p>
-            Oracles are independent bridges. They carry the request to Kleros
-            Court on {names.home} and bring the decision back. Both trips use
-            the same oracles.
-          </p>
+          <p>Oracles carry the request and decision between the two local chains.</p>
         </div>
         {mode === "custom" && ids.length > 0 && (
           <LibButton
@@ -904,17 +839,46 @@ export const RequestPage: React.FC = () => {
         )}
       </PanelHead>
 
+      {loadError && !oracles && (
+        <Callout tone="err" title="Could not load oracles" data-testid="oracles-error">
+          <p>The gateway on {names.foreign} did not answer. Check the local devnet, then retry.</p>
+          <p style={{ marginTop: 8 }}>
+            <LibButton
+              small
+              variant="secondary"
+              text="Retry loading oracles"
+              type="button"
+              onClick={() => setAttempt((a) => a + 1)}
+              data-testid="retry-oracles"
+            />
+          </p>
+        </Callout>
+      )}
       {mode === "default" ? (
         <>
           <Summary data-testid="selection-summary">
             <span className="names">
-              <span>{oracles ? summaryText : "Loading oracles…"}</span>
-              {oracles &&
-                ids.map((id) => (
-                  <span key={id} className="sw" aria-hidden="true">
-                    <Swatch $color={oracleColor(id)} />
-                  </span>
-                ))}
+              {oracles ? (
+                <>
+                  Default selection ·{" "}
+                  {oracles
+                    .filter((o) => ids.includes(o.id))
+                    .map((o, i) => (
+                      <React.Fragment key={o.id}>
+                        {i > 0 && ", "}
+                        <span className="sw">
+                          <Swatch $color={oracleColor(o.id)} />
+                          {o.name}
+                        </span>
+                      </React.Fragment>
+                    ))}{" "}
+                  · {k} must agree
+                </>
+              ) : loadError ? (
+                "Oracles unavailable"
+              ) : (
+                "Loading oracles…"
+              )}
             </span>
             <LibButton
               variant="secondary"
@@ -942,16 +906,12 @@ export const RequestPage: React.FC = () => {
                     label={o.name}
                     checked={ids.includes(o.id)}
                     disabled={!o.enabled && !ids.includes(o.id)}
-                    onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
-                      toggleOracle(o.id, e.target.checked)
-                    }
+                    onChange={(e: React.ChangeEvent<HTMLInputElement>) => toggleOracle(o.id, e.target.checked)}
                   />
                 </label>
                 <Swatch $color={oracleColor(o.id)} />
                 {!o.enabled && <span className="off">disabled</span>}
-                <span className="fee">
-                  {ids.includes(o.id) ? feeOf(o.id) : "–"}
-                </span>
+                <span className="fee">{ids.includes(o.id) ? feeOf(o.id) : "–"}</span>
               </li>
             ))}
           </OracleList>
@@ -959,9 +919,7 @@ export const RequestPage: React.FC = () => {
             <Threshold>
               <div>
                 <h3>Choose an oracle first</h3>
-                <p>
-                  The agreement requirement appears once an oracle is chosen.
-                </p>
+                <p>The agreement requirement appears once an oracle is chosen.</p>
               </div>
               <LibButton
                 variant="secondary"
@@ -1012,17 +970,11 @@ export const RequestPage: React.FC = () => {
       )}
       <Footer>
         {continueReason && (
-          <p className="why" id="continue-reason" data-testid="continue-reason">
+          <p className={selError ? "why err" : "why"} id="continue-reason" data-testid="continue-reason">
             Continue is unavailable: {continueReason}
           </p>
         )}
-        <LibButton
-          variant="secondary"
-          type="button"
-          text="Back"
-          onClick={() => goTo(1)}
-          data-testid="back"
-        />
+        <LibButton variant="secondary" type="button" text="Back" onClick={() => goTo(1)} data-testid="back" />
         <LibButton
           type="button"
           text="Continue"
@@ -1043,8 +995,8 @@ export const RequestPage: React.FC = () => {
             Pay and send
           </h2>
           <p>
-            Check your choices, then pay once, here on {names.foreign}. Nothing
-            to pay on {names.home}.
+            Pay the request fee on {names.foreign}. USDC may require approval first. No payment is needed on{" "}
+            {names.home}.
           </p>
         </div>
       </PanelHead>
@@ -1081,45 +1033,18 @@ export const RequestPage: React.FC = () => {
       {gate.state !== "ready" && (
         <div style={{ marginBottom: 16 }}>
           {loadError ? (
-            <NetworkDown
-              error={loadError}
-              onRetry={() => setAttempt((a) => a + 1)}
-            />
+            <NetworkDown error={loadError} onRetry={() => setAttempt((a) => a + 1)} />
           ) : (
             <WalletStrip gate={gate} />
           )}
         </div>
       )}
 
-      <Choice role="radiogroup" aria-label="Pay with">
-        <Radio
-          small
-          name="pay"
-          label="ETH"
-          value="native"
-          checked={token === "native"}
-          disabled={frozen}
-          onChange={() => setToken("native")}
-        />
-        <Radio
-          small
-          name="pay"
-          label="USDC"
-          value="usdc"
-          checked={token === "usdc"}
-          disabled={frozen}
-          onChange={() => setToken("usdc")}
-        />
-      </Choice>
-
       <PayGrid>
         <div>
           {current && breakdown ? (
             <>
-              <p
-                className="sub"
-                style={{ fontSize: "var(--fs-sm)", marginBottom: 8 }}
-              >
+              <p className="sub" style={{ fontSize: "var(--fs-sm)", marginBottom: 8 }}>
                 Amounts in {breakdown.symbol}
               </p>
               <Kv data-testid="cost">
@@ -1135,39 +1060,20 @@ export const RequestPage: React.FC = () => {
                           alignItems: "center",
                         }}
                       >
-                        {l.oracleId !== undefined && (
-                          <Swatch $color={oracleColor(l.oracleId)} />
-                        )}
+                        {l.oracleId !== undefined && <Swatch $color={oracleColor(l.oracleId)} />}
                         {l.label}
                       </span>
                     </dt>
-                    <dd
-                      data-testid={
-                        l.oracleId !== undefined
-                          ? `cost-oracle-${l.oracleId}`
-                          : `cost-${l.key}`
-                      }
-                    >
+                    <dd data-testid={l.oracleId !== undefined ? `cost-oracle-${l.oracleId}` : `cost-${l.key}`}>
                       {l.text}
                     </dd>
                   </React.Fragment>
                 ))}
-                <dt className="total">Request fee</dt>
-                <dd className="total" data-testid="cost-total">
-                  {breakdown.total}
-                </dd>
               </Kv>
-              <Note>Network gas extra, paid in local ETH</Note>
-              {paymentNote}
             </>
           ) : (
             <>
-              <p
-                className="sub"
-                style={{ fontSize: "var(--fs-sm)" }}
-                role="status"
-                data-testid="cost-status"
-              >
+              <p className="sub" style={{ fontSize: "var(--fs-sm)" }} role="status" data-testid="cost-status">
                 {costState.text}
               </p>
               {costState.retry && (
@@ -1186,28 +1092,53 @@ export const RequestPage: React.FC = () => {
           )}
         </div>
 
-        <div>
+        <div className="pay">
+          <p className="lbl" id="pay-with">
+            Pay with
+          </p>
+          <Choice role="radiogroup" aria-labelledby="pay-with">
+            <Radio
+              small
+              name="pay"
+              label="ETH"
+              value="native"
+              checked={token === "native"}
+              disabled={frozen}
+              onChange={() => setToken("native")}
+            />
+            <Radio
+              small
+              name="pay"
+              label="USDC"
+              value="usdc"
+              checked={token === "usdc"}
+              disabled={frozen}
+              onChange={() => setToken("usdc")}
+            />
+          </Choice>
+          {current && breakdown && (
+            <>
+              <Total>
+                <span>Request fee</span>
+                <span className="v" data-testid="cost-total">
+                  {breakdown.total}
+                </span>
+              </Total>
+              <Note>Network gas extra, paid in local ETH</Note>
+              {paymentNote}
+            </>
+          )}
           {usdc && usdcSteps}
 
           {busy && submitted && (
-            <Sending
-              role="status"
-              data-testid="submitted-summary"
-              style={{ marginTop: 14 }}
-            >
-              {busy === "approve" ? "Approving" : "Sending"}: {submitted}.
-              Waiting for confirmation…
+            <Sending role="status" data-testid="submitted-summary" style={{ marginTop: 14 }}>
+              {busy === "approve" ? "Approving" : "Sending"}: {submitted}. Waiting for confirmation…
             </Sending>
           )}
 
           <Actions>
             {!gate.canTransact && (
-              <p
-                data-testid="pay-gate"
-                style={{ fontSize: "var(--fs-sm)" }}
-                className="sub"
-                role="status"
-              >
+              <p data-testid="pay-gate" style={{ fontSize: "var(--fs-sm)" }} className="sub" role="status">
                 {gate.message}
               </p>
             )}
@@ -1225,11 +1156,7 @@ export const RequestPage: React.FC = () => {
               <LibButton
                 variant="secondary"
                 type="button"
-                text={
-                  busy === "approve"
-                    ? "Waiting for confirmation…"
-                    : `Approve ${total ?? "USDC"}`
-                }
+                text={busy === "approve" ? "Waiting for confirmation…" : `Approve ${total ?? "USDC"}`}
                 disabled={!canAct}
                 isLoading={busy === "approve"}
                 onClick={() => void approve()}
@@ -1247,9 +1174,7 @@ export const RequestPage: React.FC = () => {
                 label="I checked Track and want to send again"
                 checked={ackAgain}
                 disabled={!!busy}
-                onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
-                  setAckAgain(e.target.checked)
-                }
+                onChange={(e: React.ChangeEvent<HTMLInputElement>) => setAckAgain(e.target.checked)}
                 data-testid="ack-again"
               />
             )}
@@ -1269,19 +1194,9 @@ export const RequestPage: React.FC = () => {
               data-testid="send"
             />
           </Actions>
-          {approveError && (
-            <Result>
-              {errorCallout(approveError.title, approveError, "approve-error")}
-            </Result>
-          )}
+          {approveError && <Result>{errorCallout(approveError.title, approveError, "approve-error")}</Result>}
           <Result aria-live="polite">
-            {failure &&
-              errorCallout(
-                failure.title,
-                failure,
-                "request-error",
-                failure.kind === "unknown",
-              )}
+            {failure && errorCallout(failure.title, failure, "request-error", failure.kind === "unknown")}
           </Result>
         </div>
       </PayGrid>
@@ -1309,29 +1224,17 @@ export const RequestPage: React.FC = () => {
         </div>
       </PageHead>
 
-      {loadError && (
-        <span className="visually-hidden">The gateway could not be read.</span>
-      )}
+      {loadError && <span className="visually-hidden">The gateway could not be read.</span>}
 
       <div ref={root}>
         {done ? (
           <Panel aria-label="Request sent" data-testid="completion">
-            <Callout
-              tone="ok"
-              title={`Request #${done.disputeId} sent`}
-              data-testid="request-success"
-            >
-              <div
-                className="sub"
-                style={{ fontSize: "var(--fs-sm)", overflowWrap: "anywhere" }}
-              >
+            <Callout tone="ok" title={`Request #${done.disputeId} sent`} data-testid="request-success">
+              <div className="sub" style={{ fontSize: "var(--fs-sm)", overflowWrap: "anywhere" }}>
                 {successTx && (
                   <>
                     Transaction{" "}
-                    <Copiable
-                      copiableContent={successTx.hash}
-                      info="Copy transaction hash"
-                    >
+                    <Copiable copiableContent={successTx.hash} info="Copy transaction hash">
                       <Hash title={successTx.hash} data-testid="request-tx">
                         {shortHash(successTx.hash)}
                       </Hash>
@@ -1342,11 +1245,7 @@ export const RequestPage: React.FC = () => {
                 Open Track to follow this request.
               </div>
               {submitted && (
-                <p
-                  className="sub"
-                  style={{ fontSize: "var(--fs-sm)", marginTop: 6 }}
-                  data-testid="submitted-summary"
-                >
+                <p className="sub" style={{ fontSize: "var(--fs-sm)", marginTop: 6 }} data-testid="submitted-summary">
                   {submitted}
                 </p>
               )}
@@ -1375,11 +1274,7 @@ export const RequestPage: React.FC = () => {
           </Panel>
         ) : (
           <Layout>
-            <Main
-              onSubmit={(e) => e.preventDefault()}
-              noValidate
-              aria-label="Request a switch"
-            >
+            <Main onSubmit={(e) => e.preventDefault()} noValidate aria-label="Request a switch">
               <Progress aria-label="Request steps" data-testid="steps">
                 <p className="count" data-testid="step-count">
                   Step {step} of 3

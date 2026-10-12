@@ -93,6 +93,7 @@ const Tabs = styled.nav`
     color: var(--text);
   }
   a[aria-current="page"] {
+    background: var(--tint);
     color: var(--text);
     font-weight: 700;
   }

@@ -8,6 +8,8 @@ function extend(base: typeof darkTheme, name: ThemeName) {
   const dark = name === "dark";
   return {
     ...base,
+    // The library's light blues (#009AFF, hover #7BCBFF) fall below 4.5:1 against white in both button variants.
+    ...(dark ? {} : { klerosUIComponentsPrimaryBlue: "#0077c8", klerosUIComponentsSecondaryBlue: "#005f9e" }),
     name,
     ground: base.klerosUIComponentsLightBackground,
     surface: base.klerosUIComponentsWhiteBackground,

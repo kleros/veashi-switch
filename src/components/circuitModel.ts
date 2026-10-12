@@ -42,6 +42,15 @@ export const NODE_TITLES: Record<NodeKey, string> = {
   foreignIn: "Bulb updated",
 };
 
+/** The Request preview draws the route before anything happened: its nodes name actions, not events. */
+export const PREVIEW_NODE_TITLES: Record<NodeKey, string> = {
+  foreignOut: "Send request",
+  homeIn: "Court receives request",
+  court: "Decision",
+  homeOut: "Decision returns",
+  foreignIn: "Update bulb",
+};
+
 function nodeSubs(names: ChainNames, home: string): Record<NodeKey, string> {
   return {
     foreignOut: names.foreign,
@@ -226,7 +235,7 @@ export function previewModel(
     dispute,
     ruling,
     nodes: { foreignOut: "idle", homeIn: "idle", court: "idle", homeOut: "idle", foreignIn: "idle" },
-    titles: NODE_TITLES,
+    titles: PREVIEW_NODE_TITLES,
     sub: nodeSubs(names, ""),
     tx: {},
     schematic: true,

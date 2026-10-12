@@ -208,7 +208,7 @@ export function nowModel(
             title: "Your turn: simulate the court decision",
             body: "Choose the court's decision for this local demo.",
             status: "live",
-            statusText: "Local demo",
+            statusText: "Awaiting your decision",
             next: "You: choose Decide On or Decide Off",
             counts: null,
             action: "simulate",
@@ -252,7 +252,7 @@ export function nowModel(
         body: `The court decided ${rulingName(req.ruling)} in Court case ${home} and the decision reached ${names.foreign}.`,
         status: "ok",
         statusText: `Decision: ${rulingName(req.ruling)}`,
-        next: bulb.kind === "failed" ? "Retry the bulb check." : bulb.kind === "known" ? "Nothing. Done." : "Checking the bulb",
+        next: bulb.kind === "failed" ? "Retry the bulb check." : bulb.kind === "known" ? "No further action needed." : "Checking the bulb",
         counts: null,
         action: "done",
         bulbNow: {

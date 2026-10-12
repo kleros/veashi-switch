@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Oracle, RequestStage, StageTx, SwitchRequest } from "../data";
-import { requestModel, previewModel, NODE_TITLES } from "./circuitModel";
+import { requestModel, previewModel, NODE_TITLES, PREVIEW_NODE_TITLES } from "./circuitModel";
 import { AGREEMENT_HINT, FORBIDDEN_TEXT, HELP_NOTE, HELP_STAGES, HELP_TERMS, REQUEST_INTRO } from "./copy";
 import { sendFailure } from "./errors";
 import { logEntries, nowModel, pausedModel, STAGE_LABEL, txName } from "./trackModel";
@@ -42,7 +42,7 @@ function req(stage: RequestStage): SwitchRequest {
 }
 
 const allText = (): string[] => {
-  const out: string[] = [REQUEST_INTRO, AGREEMENT_HINT, HELP_NOTE, ...Object.values(STAGE_LABEL), ...Object.values(NODE_TITLES)];
+  const out: string[] = [REQUEST_INTRO, AGREEMENT_HINT, HELP_NOTE, ...Object.values(STAGE_LABEL), ...Object.values(NODE_TITLES), ...Object.values(PREVIEW_NODE_TITLES)];
   for (const h of HELP_STAGES) out.push(h.lead, h.rest);
   for (const t of HELP_TERMS) out.push(t.term, t.text);
   for (const stage of STAGES) {
