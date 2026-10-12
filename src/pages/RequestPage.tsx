@@ -103,7 +103,6 @@ const Progress = styled.nav`
     padding: 4px 2px;
     background: transparent;
     border: 0;
-    border-bottom: 3px solid var(--stroke-strong);
     color: var(--text-2);
     font: inherit;
     font-size: var(--fs-sm);
@@ -118,10 +117,11 @@ const Progress = styled.nav`
   }
   button[aria-current="step"] {
     color: var(--text);
-    border-bottom-color: var(--purple-2);
   }
-  button.done {
-    border-bottom-color: var(--ok);
+  button[aria-current="step"] .n {
+    background: var(--purple);
+    border-color: var(--purple);
+    color: var(--on-accent);
   }
   .n {
     display: inline-grid;

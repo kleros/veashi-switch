@@ -90,13 +90,11 @@ const Tabs = styled.nav`
     font-weight: 600;
   }
   a:hover {
-    background: var(--tint);
     color: var(--text);
   }
   a[aria-current="page"] {
-    background: var(--tint);
     color: var(--text);
-    box-shadow: inset 0 -2px 0 var(--purple-2);
+    font-weight: 700;
   }
 `;
 

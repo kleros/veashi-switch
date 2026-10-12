@@ -299,7 +299,6 @@ const Log = styled.ol`
   }
   > li.cur {
     background: var(--tint);
-    box-shadow: inset 0 0 0 1px var(--stroke-strong);
   }
   > li.todo {
     color: var(--text-2);
