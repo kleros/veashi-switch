@@ -436,6 +436,7 @@ const TxButton = styled.button`
   color: var(--blue);
   font: inherit;
   font-size: var(--fs-sm);
+  white-space: nowrap;
   cursor: copy;
   .h {
     font-family: var(--font-code);
