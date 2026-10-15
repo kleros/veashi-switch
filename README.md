@@ -11,6 +11,7 @@ Stack: Vite, React 18, TypeScript, styled-components, `@kleros/ui-components-lib
 - Node 20 or later.
 - Yarn 4. The release is committed under `.yarn/releases`, so any `yarn` (Corepack or a global install) runs it.
 - Foundry (`forge`, `anvil`) on `PATH` or in `~/.foundry/bin`, for the devnet.
+- The kleros-v2 submodule, for the devnet: clone with `git clone --recurse-submodules`, or run `git submodule update --init --depth 1` in an existing clone. Without `--depth 1`, git fetches kleros-v2's whole history (about 170 MB instead of 11 MB). Do not add `--recursive`: the devnet needs none of kleros-v2's own submodules.
 - Playwright's Chromium for the end-to-end suite: `yarn playwright install chromium`.
 
 ## Commands
@@ -44,9 +45,24 @@ Devnet settings: `VEASHI_FOREIGN_PORT` and `VEASHI_HOME_PORT` set the ports (def
 - `src/data/`: the data layer the pages build on (`types.ts` is the seam; reads, quotes, the request lifecycle, errors, the wagmi config).
 - `src/pages/`, `src/components/`, `src/theme/`: the Request and Track pages, the circuit and bulb (custom SVG), the shell and the theme.
 - `scripts/`: the devnet (`devnet.sh`), deployment (`deploy.ts`, seeded from `lib/seed.ts`), the relayer, the ruling helper, the smoke test and the server the e2e suite runs against (`serve-critique.sh`).
-- `contracts/`: the devnet-only forge project. `src/` holds the Yaho/Yaru/reporter/adapter mocks and a mock USDC; `lib/kleros-v2/` is a vendored copy of the Kleros v2 contracts the devnet deploys (see its README).
+- `contracts/`: the devnet-only forge project. `src/` holds the Yaho/Yaru/reporter/adapter mocks and a mock USDC; `lib/kleros-v2/` is the kleros-v2 submodule, from which the devnet compiles the gateways, `GatewayLightbulb`, `KlerosCoreRuler` and `UUPSProxy` (see below).
 - `e2e/`: the Playwright suite.
+
+## Kleros v2 contracts
+
+`contracts/lib/kleros-v2` is a shallow git submodule of [kleros-v2](https://github.com/kleros/kleros-v2), pinned to commit `56bfb6b810e4a5e0b5c7b6f5a365298da5476eb7` on the branch `feat/integrate-veashi`, which holds the Veashi gateways and `GatewayLightbulb`. `contracts/src/Imports.sol` pulls `ForeignGateway`, `HomeGateway`, `GatewayLightbulb`, `KlerosCoreRuler` and `UUPSProxy` from it into the devnet build, and their imports of `@kleros/veashi-sdk` and `@openzeppelin/contracts` resolve to this repository's `node_modules`. The published `@kleros/kleros-v2-contracts` package does not contain these gateways yet; once a release does, it can replace the submodule.
+
+To move to another kleros-v2 commit:
+
+```bash
+git -C contracts/lib/kleros-v2 fetch --depth 1 origin <commit>
+git -C contracts/lib/kleros-v2 checkout --detach <commit>
+git add contracts/lib/kleros-v2
+yarn devnet:smoke && yarn test:e2e
+```
+
+A changed contract ABI also needs `src/data/abi.ts` updated. If `feat/integrate-veashi` is rebased or deleted, the pinned commit can disappear from GitHub: repoint the submodule to the commit that replaced it.
 
 ## Origin
 
-This app was first developed inside the [kleros-v2](https://github.com/kleros/kleros-v2) monorepo, on a branch that was not published, and moved to its own repository on 2026-10-15 with its history. The Kleros v2 contracts its devnet deploys are vendored in `contracts/lib/kleros-v2` (see its README for the source commit).
+This app was first developed inside the [kleros-v2](https://github.com/kleros/kleros-v2) monorepo, on a branch that was not published, and moved to its own repository on 2026-10-15 with its history. The Kleros v2 contracts its devnet deploys come from the kleros-v2 submodule.

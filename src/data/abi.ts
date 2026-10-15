@@ -1,6 +1,6 @@
-// The slices of the contracts' ABIs the app and the devnet scripts use. Hand-written from the vendored Kleros v2
-// contracts in contracts/lib/kleros-v2/src (the gateways, GatewayLightbulb, KlerosCoreRuler) and the devnet mocks in
-// contracts/src, so the app does not need forge artifacts at build time.
+// The slices of the contracts' ABIs the app and the devnet scripts use. Hand-written from the Kleros v2 contracts in
+// the kleros-v2 submodule (contracts/lib/kleros-v2/contracts/src: the gateways, GatewayLightbulb, KlerosCoreRuler)
+// and the devnet mocks in contracts/src, so the app needs neither the submodule nor forge artifacts at build time.
 import { parseAbi } from "viem";
 
 const MESSAGE =

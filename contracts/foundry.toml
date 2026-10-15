@@ -1,6 +1,6 @@
 # Devnet-only forge project: the Yaho/Yaru/reporter/adapter mocks and a mock USDC, plus the Kleros v2 gateways,
-# lightbulb and KlerosCoreRuler pulled in through src/Imports.sol from the vendored copy in lib/kleros-v2 (their
-# import closure only; see lib/kleros-v2/README.md).
+# lightbulb and KlerosCoreRuler pulled in through src/Imports.sol from the kleros-v2 submodule in lib/kleros-v2
+# (their import closure only; the pinned commit is in the README).
 [profile.default]
 solc = "0.8.30"
 via_ir = true
@@ -10,11 +10,13 @@ src = "src"
 out = "out"
 cache_path = "cache"
 libs = ["lib", "../node_modules"]
+# Only the remappings below: the submodule is a whole monorepo, and its own remappings must not leak in.
+auto_detect_remappings = false
 allow_paths = ["../node_modules"]
 remappings = [
     "@openzeppelin/=../node_modules/@openzeppelin/",
     "@kleros/=../node_modules/@kleros/",
-    "kleros-v2/=lib/kleros-v2/src/",
+    "kleros-v2/=lib/kleros-v2/contracts/src/",
 ]
 
 [lint]

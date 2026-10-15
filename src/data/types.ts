@@ -1,5 +1,5 @@
 // The seam between the data layer (src/data implements it) and the pages (they render it): change it on both sides.
-// Field names follow the vendored gateways and lightbulb in contracts/lib/kleros-v2/src/gateway.
+// Field names follow the gateways and lightbulb in the kleros-v2 submodule (its contracts/src/gateway).
 
 export type Hex = `0x${string}`;
 export type Address = Hex;

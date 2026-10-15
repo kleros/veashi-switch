@@ -157,6 +157,8 @@ cmd_start() {
   command -v forge >/dev/null || die "forge not found: install Foundry (foundryup), it is expected in \$HOME/.foundry/bin"
   command -v node >/dev/null || die "node not found"
   [[ -f "$VITE_NODE" ]] || die "vite-node not found: run 'yarn install' first"
+  [[ -f "$APP/contracts/lib/kleros-v2/contracts/src/gateway/ForeignGateway.sol" ]] ||
+    die "the kleros-v2 contracts are missing: run 'git submodule update --init --depth 1'"
 
   if [[ -d "$STATE" ]]; then
     for name in $(recorded_names); do is_recorded_alive "$name" && live+=("$name"); done
