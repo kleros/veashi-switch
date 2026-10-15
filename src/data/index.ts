@@ -1,5 +1,5 @@
-// The data module the pages read and write through. Exported names and signatures are frozen for the run
-// (see features/veashi-switch-ui/prd.md, "The seam"); the implementation lives in the sibling files.
+// The data module the pages read and write through (its types are in types.ts); the implementation lives in the
+// sibling files.
 import { createConfig, http, injected, mock, type Config, type CreateConnectorFn } from "wagmi";
 import { createChainSwitchData, DEV_ACCOUNT, devnetChains } from "./chain";
 import { parseDevnetEnv } from "./env";

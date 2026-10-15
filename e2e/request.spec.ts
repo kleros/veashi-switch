@@ -303,7 +303,7 @@ test("[scenario:request-network-route] three steps, the fixed local route, walle
   await expect(paySection(page).getByRole("button", { name: "Use test wallet" })).toBeVisible();
   await goToStep(page, 1);
 
-  // At every width the Route preview sits under the steps (operator hand fix, decisions.md [L11]).
+  // At every width the Route preview sits under the steps.
   const preview = (await page.getByRole("heading", { name: "Route preview" }).boundingBox())!;
   const stepsBox = (await page.getByTestId("step-1").boundingBox())!;
   expect(preview.y).toBeGreaterThanOrEqual(stepsBox.y + stepsBox.height - 1);
@@ -442,7 +442,7 @@ test("[scenario:request-carousel] Continue, Back, the markers and Edit move betw
   await expect(page.getByTestId("selection-summary")).toContainText(/^Default selection/);
 });
 
-// Not a policy scenario: Track and Request read the same current bulb, even when an older request's decision lands last.
+// Track and Request read the same current bulb, even when an older request's decision lands last.
 test("Track shows the wallet's current bulb, not the last ruling of the tracked request", async ({ page }) => {
   test.setTimeout(240_000);
   // The fake setup keeps its state in memory and loses it on a reload; this needs the devnet.

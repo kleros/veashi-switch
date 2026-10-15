@@ -137,7 +137,7 @@ async function trackUntilCourtMobile(page: import("@playwright/test").Page, id: 
   await expect(page.getByTestId("now")).toContainText("Your turn: simulate the court decision", { timeout: 120_000 });
 }
 
-// Not a policy scenario: the self-report's evidence for phone width, both themes and reduced motion.
+// Phone width, both themes and reduced motion.
 test("layout at 375 px in dark and light, the circuit scrolls sideways, the bulb stays under reduced motion", async ({
   page,
 }, testInfo) => {
@@ -224,7 +224,7 @@ test("[scenario:track-layout] the new Track layout: nothing under the bar, one s
   // At court arrival: the stage titles once, the card above Progress, the summary to its right.
   await expect(page.getByTestId("now")).toContainText("Your turn: simulate the court decision", { timeout: 120_000 });
   await expectStageTitlesOnce(page, "court arrival");
-  // One column (decisions.md [L11], [L12]): Progress under the card, the summary under Progress, all on the same edges.
+  // One column: Progress under the card, the summary under Progress, all on the same edges.
   const card = (await page.getByTestId("now").boundingBox())!;
   const progress = (await page.getByTestId("progress").boundingBox())!;
   const summary = (await page.getByTestId("dispute-record").boundingBox())!;

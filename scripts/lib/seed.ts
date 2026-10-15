@@ -1,4 +1,5 @@
-// Seed configuration of the devnet deployment: the design mocks' data (features/veashi-switch-ui/design/request.html).
+// Seed configuration of the devnet deployment: the oracles, the default selection, the court and the USDC rate the
+// pages show.
 import { parseEther } from "viem";
 
 export const FOREIGN_CHAIN_ID = 84_530_001; // Base-like; an id no public network uses (not 8453)

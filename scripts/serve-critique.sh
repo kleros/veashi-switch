@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# For the critique reviewer (decisions.md [L1] 3): starts the devnet on free ports (deploy + relayer, via
+# For the e2e suite and design reviews: starts the devnet on free ports (deploy + relayer, via
 # devnet.sh), builds the app with the fresh public/devnet.json (test wallet enabled), and serves dist/ with
 # `vite preview` on 127.0.0.1:$CRITIQUE_WEB_PORT until SIGTERM/SIGINT; then stops the server and runs
 # `devnet.sh stop`. Any failure stops everything too.

@@ -120,7 +120,7 @@ export async function connectTestWallet(page: Page) {
   await expect(state).toHaveText("Wallet on Base-like local devnet");
 }
 
-/** The one screenshot a scenario test attaches, named for the verifier. */
+/** The one screenshot a scenario test attaches, named after the scenario. */
 export async function attachScreenshot(page: Page, testInfo: TestInfo, scenario: string) {
   await page.evaluate(() => window.scrollTo(0, 0));
   // Attached by path (not inline) so the JSON report points at a real PNG file.

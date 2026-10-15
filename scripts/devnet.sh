@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# The local two-chain devnet (decisions.md [L1] 2, [L2]).
+# The local two-chain devnet.
 #   bash scripts/devnet.sh [start]  starts both anvils, deploys and configures everything, starts the relayer,
 #                                   writes public/devnet.json and exits 0, leaving the processes running detached
 #                                   with their pids in .devnet/. On failure it stops what it started.

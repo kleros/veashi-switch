@@ -1,5 +1,5 @@
 // Development only (`vite --mode fake`): an in-memory SwitchData that walks the request lifecycle on timers, so the
-// pages can be built and their states checked without the chain lane's devnet. main.tsx imports it only when
+// pages can be built and their states checked without the devnet. main.tsx imports it only when
 // import.meta.env.DEV, so it never reaches a build; it is not the app's data source.
 import { createConfig, http } from "wagmi";
 import { injected, mock } from "wagmi/connectors";

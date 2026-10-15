@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# devnet:smoke, the chain lane's integration check: starts the devnet (free ports unless VEASHI_FOREIGN_PORT /
+# devnet:smoke, the data layer's integration check: starts the devnet (free ports unless VEASHI_FOREIGN_PORT /
 # VEASHI_HOME_PORT are set), runs scripts/devnet.smoke.ts through the app's data module (request with the default
 # oracles in ETH, relay oracle by oracle, rule 1, relay back, bulb on; then a custom selection in USDC ruled 2, bulb
 # off) and stops everything it started, on success, failure, SIGINT or SIGTERM.
@@ -9,7 +9,7 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 APP="$(cd "$HERE/.." && pwd)"
 VITEST="$APP/node_modules/.bin/vitest"
 
-# Two runs on one host (two worktrees, a critique server) must not share ports: default to free ones.
+# Two runs on one host (two checkouts, a running e2e server) must not share ports: default to free ones.
 export VEASHI_FOREIGN_PORT="${VEASHI_FOREIGN_PORT:-auto}"
 export VEASHI_HOME_PORT="${VEASHI_HOME_PORT:-auto}"
 

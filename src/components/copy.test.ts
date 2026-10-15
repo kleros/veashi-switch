@@ -80,7 +80,7 @@ describe("default-view copy", () => {
       for (const re of FORBIDDEN_TEXT) expect(text, `"${text}" vs ${re}`).not.toMatch(re);
   });
 
-  it("applies the critique's replacements", () => {
+  it("applies the copy replacements", () => {
     expect(REQUEST_INTRO).toBe("Send a request through two local chains, then simulate the court's decision on Track.");
     expect(nowModel(req("dispute-received"), oracles, names, { canSimulate: true }).title).toBe(
       "Your turn: simulate the court decision",

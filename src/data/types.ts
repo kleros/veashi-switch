@@ -1,6 +1,5 @@
-// The seam between the `chain` lane (implements it) and the `pages` lane (renders it).
-// Frozen for the workflow run veashi-switch-ui: a lane that needs a change asks the operator through a `question`.
-// Field names follow contracts/src/gateway/{ForeignGateway,HomeGateway}.sol and contracts/src/gateway/mock/GatewayLightbulb.sol.
+// The seam between the data layer (src/data implements it) and the pages (they render it): change it on both sides.
+// Field names follow the vendored gateways and lightbulb in contracts/lib/kleros-v2/src/gateway.
 
 export type Hex = `0x${string}`;
 export type Address = Hex;
@@ -128,7 +127,7 @@ export interface SwitchData {
   request(disputeId: bigint): Promise<SwitchRequest | null>;
   requests(owner: Address): Promise<SwitchRequest[]>; // newest first
   watchRequest(disputeId: bigint, onChange: (request: SwitchRequest) => void): Unsubscribe;
-  // ops(): Promise<OpsSnapshot> — deferred with the Ops page to a later run.
+  // ops(): Promise<OpsSnapshot> — not implemented: there is no Ops page yet.
   // Devnet only (undefined otherwise): the stand-in for jurors. Gives KlerosCoreRuler's ruling for the request's home
   // dispute with the dev account, 1 = on, 2 = off; the relayer then carries it back.
   devnet?: { rule(disputeId: bigint, ruling: 1 | 2): Promise<Hex> };

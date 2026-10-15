@@ -1,7 +1,7 @@
 import { expect, test } from "@playwright/test";
 import { connectTestWallet, expectPlainText, goToStep, sendAndConfirm, showCircuit } from "./helpers";
 
-// Not policy scenarios: failure states that the fake setup can stage (`?fail=`, `?stall=1`); skipped on the devnet build.
+// Failure states that only the fake setup can stage (`?fail=`, `?stall=1`); skipped on the devnet build.
 async function isFake(page: import("@playwright/test").Page) {
   const res = await page.request.get("/devnet.json");
   return !res.ok() || !(res.headers()["content-type"] ?? "").includes("json");

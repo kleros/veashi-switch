@@ -3,7 +3,7 @@ import { darkTheme, lightTheme } from "@kleros/ui-components-library";
 export type ThemeName = "dark" | "light";
 
 // The app's tokens: the library theme (it wins where it has a token) plus the few the circuit and bulb need that the
-// library lacks (stroke-strong, a third text tone, bulb and oracle strand colours), taken from the Request design.
+// library lacks (stroke-strong, a third text tone, bulb and oracle strand colours).
 function extend(base: typeof darkTheme, name: ThemeName) {
   const dark = name === "dark";
   return {

@@ -24,7 +24,7 @@ export const REQUIRED_ADDRESSES = {
 
 const LOCAL_HOSTS = new Set(["127.0.0.1", "localhost"]);
 
-/** The devnet only ever runs on this machine: anything else could be a public chain ([O1]). */
+/** The devnet only ever runs on this machine: anything else could be a public chain. */
 export function isLocalRpcUrl(url: string): boolean {
   let parsed: URL;
   try {
