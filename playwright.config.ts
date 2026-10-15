@@ -16,7 +16,7 @@ const port = process.env.VEASHI_E2E_WEB_PORT;
 const baseURL = `http://127.0.0.1:${port}`;
 
 // VEASHI_E2E_FAKE=1 runs the same specs against `vite --mode fake` (in-memory data, no chain): a development aid only.
-// The default is the real thing: scripts/serve-critique.sh starts the devnet on
+// The default is the real thing: scripts/serve-e2e.sh starts the devnet on
 // free ports with its relayer, builds the app against the fresh devnet.json and serves dist/; SIGTERM stops it all.
 const fake = process.env.VEASHI_E2E_FAKE === "1";
 const viteBin = fake ? join(dirname(createRequire(import.meta.url).resolve("vite/package.json")), "bin", "vite.js") : "";
@@ -40,10 +40,10 @@ export default defineConfig({
   webServer: {
     command: fake
       ? `node ${viteBin} --mode fake --host 127.0.0.1 --port ${port} --strictPort`
-      : "bash scripts/serve-critique.sh",
+      : "bash scripts/serve-e2e.sh",
     url: baseURL,
     env: {
-      CRITIQUE_WEB_PORT: port,
+      VEASHI_E2E_WEB_PORT: port,
       VEASHI_FOREIGN_PORT: process.env.VEASHI_FOREIGN_PORT ?? "auto",
       VEASHI_HOME_PORT: process.env.VEASHI_HOME_PORT ?? "auto",
     },

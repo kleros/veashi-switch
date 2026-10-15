@@ -13,7 +13,7 @@
     "test": "vitest run",
     "test:e2e": "playwright test",
     "devnet": "bash scripts/devnet.sh",
-    "serve:critique": "bash scripts/serve-critique.sh",
+    "serve:e2e": "bash scripts/serve-e2e.sh",
     "devnet:smoke": "bash scripts/devnet-smoke.sh"
   },
   "dependencies": {

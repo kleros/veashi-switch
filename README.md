@@ -31,7 +31,7 @@ yarn test              # vitest unit tests (src/**/*.test.ts)
 yarn build
 
 yarn devnet:smoke      # start a devnet on free ports, drive two full requests through src/data, stop it
-yarn test:e2e          # Playwright: starts its own devnet and server (scripts/serve-critique.sh), stops them after
+yarn test:e2e          # Playwright: starts its own devnet and server (scripts/serve-e2e.sh), stops them after
 VEASHI_E2E_FAKE=1 yarn test:e2e   # the same specs against the fake mode
 
 # Rule on a request while the devnet runs (1 = on, 2 = off), standing in for the jurors:
@@ -44,7 +44,7 @@ Devnet settings: `VEASHI_FOREIGN_PORT` and `VEASHI_HOME_PORT` set the ports (def
 
 - `src/data/`: the data layer the pages build on (`types.ts` is the seam; reads, quotes, the request lifecycle, errors, the wagmi config).
 - `src/pages/`, `src/components/`, `src/theme/`: the Request and Track pages, the circuit and bulb (custom SVG), the shell and the theme.
-- `scripts/`: the devnet (`devnet.sh`), deployment (`deploy.ts`, seeded from `lib/seed.ts`), the relayer, the ruling helper, the smoke test and the server the e2e suite runs against (`serve-critique.sh`).
+- `scripts/`: the devnet (`devnet.sh`), deployment (`deploy.ts`, seeded from `lib/seed.ts`), the relayer, the ruling helper, the smoke test and the server the e2e suite runs against (`serve-e2e.sh`).
 - `contracts/`: the devnet-only forge project. `src/` holds the Yaho/Yaru/reporter/adapter mocks and a mock USDC; `lib/kleros-v2/` is the kleros-v2 submodule, from which the devnet compiles the gateways, `GatewayLightbulb`, `KlerosCoreRuler` and `UUPSProxy` (see below).
 - `e2e/`: the Playwright suite.
 
