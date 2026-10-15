@@ -7,10 +7,7 @@ set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 APP="$(cd "$HERE/.." && pwd)"
-REPO="$(cd "$APP/.." && pwd)"
-bin() {
-  if [[ -x "$APP/node_modules/.bin/$1" ]]; then echo "$APP/node_modules/.bin/$1"; else echo "$REPO/node_modules/.bin/$1"; fi
-}
+bin() { echo "$APP/node_modules/.bin/$1"; }
 
 : "${CRITIQUE_WEB_PORT:?set CRITIQUE_WEB_PORT to the port the app should be served on}"
 export VEASHI_FOREIGN_PORT="${VEASHI_FOREIGN_PORT:-auto}"

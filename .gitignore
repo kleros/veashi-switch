@@ -8,3 +8,8 @@ blob-report/
 contracts/out/
 contracts/cache/
 *.tsbuildinfo
+
+# Yarn 4 (the release under .yarn/releases is committed)
+.yarn/*
+!.yarn/releases
+.pnp.*

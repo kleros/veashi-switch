@@ -12,12 +12,10 @@ set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 APP="$(cd "$HERE/.." && pwd)"
-REPO="$(cd "$APP/.." && pwd)"
 STATE="$APP/.devnet"
 PUBLIC_JSON="$APP/public/devnet.json"
-# The workspace's own vite-node (vitest 2's), else the hoisted one.
+# vitest 2's vite-node runs the TypeScript deploy and relayer scripts.
 VITE_NODE="$APP/node_modules/vite-node/vite-node.mjs"
-[[ -f "$VITE_NODE" ]] || VITE_NODE="$REPO/node_modules/vite-node/vite-node.mjs"
 export PATH="$HOME/.foundry/bin:$PATH"
 
 FOREIGN_CHAIN_ID=84530001 # keep in sync with scripts/lib/seed.ts
@@ -158,7 +156,7 @@ cmd_start() {
   command -v anvil >/dev/null || die "anvil not found: install Foundry (foundryup), it is expected in \$HOME/.foundry/bin"
   command -v forge >/dev/null || die "forge not found: install Foundry (foundryup), it is expected in \$HOME/.foundry/bin"
   command -v node >/dev/null || die "node not found"
-  [[ -f "$VITE_NODE" ]] || die "vite-node not found: run 'bash features/_shared/web-setup.sh install' at the repository root"
+  [[ -f "$VITE_NODE" ]] || die "vite-node not found: run 'yarn install' first"
 
   if [[ -d "$STATE" ]]; then
     for name in $(recorded_names); do is_recorded_alive "$name" && live+=("$name"); done
@@ -184,7 +182,7 @@ cmd_start() {
   home_rpc="http://127.0.0.1:$home_port"
   echo "$foreign_port $home_port" >"$STATE/ports"
 
-  log "compiling the devnet contracts (forge, veashi-switch/contracts)"
+  log "compiling the devnet contracts (forge, contracts/)"
   (cd "$APP/contracts" && forge build >"$STATE/forge.log" 2>&1) || {
     cat "$STATE/forge.log" >&2
     die "forge build failed"

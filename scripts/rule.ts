@@ -1,5 +1,5 @@
 // The ruling helper, standing in for the jurors: gives KlerosCoreRuler's ruling for a request's home dispute with
-// the dev account. Usage, from veashi-switch/ with the devnet running:
+// the dev account. Usage, from the repository root with the devnet running:
 //   node node_modules/vite-node/vite-node.mjs scripts/rule.ts <foreignDisputeId> <1|2>   (1 = on, 2 = off)
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";

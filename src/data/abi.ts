@@ -1,6 +1,6 @@
 // The slices of the contracts' ABIs the app and the devnet scripts use. Hand-written from
 // contracts/src/gateway/{ForeignGateway,HomeGateway}.sol, mock/GatewayLightbulb.sol, KlerosCoreRuler.sol and the
-// devnet mocks in veashi-switch/contracts/src, so the app does not need forge artifacts at build time.
+// devnet mocks in contracts/src, so the app does not need forge artifacts at build time.
 import { parseAbi } from "viem";
 
 const MESSAGE =

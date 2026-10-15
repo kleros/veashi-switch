@@ -7,9 +7,7 @@ set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 APP="$(cd "$HERE/.." && pwd)"
-REPO="$(cd "$APP/.." && pwd)"
 VITEST="$APP/node_modules/.bin/vitest"
-[[ -x "$VITEST" ]] || VITEST="$REPO/node_modules/.bin/vitest"
 
 # Two runs on one host (two worktrees, a critique server) must not share ports: default to free ones.
 export VEASHI_FOREIGN_PORT="${VEASHI_FOREIGN_PORT:-auto}"
