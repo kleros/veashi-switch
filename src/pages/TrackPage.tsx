@@ -2,7 +2,8 @@ import React, { useCallback, useEffect, useMemo, useReducer, useRef, useState } 
 import { Copiable, Field, Tabs, Tag } from "@kleros/ui-components-library";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import styled from "styled-components";
-import type { Oracle, StageTx, SwitchRequest } from "../data";
+import type { Oracle, RequestAction, StageTx, SwitchRequest } from "../data";
+import { isFailurePath, isFinal } from "../data/lifecycle";
 import { BulbSvg } from "../components/Bulb";
 import { Circuit } from "../components/Circuit";
 import { requestModel } from "../components/circuitModel";
@@ -21,6 +22,7 @@ import { routeConfig, walletGate } from "../components/route";
 import { useSetup } from "../components/setup";
 import { useCopy } from "../components/Toast";
 import {
+  actionModels,
   DECISION_SUBMITTED,
   logEntries,
   nowModel,
@@ -131,12 +133,13 @@ const NowPanel = styled(Panel)`
   }
 `;
 
-const Status = styled.span<{ $tone: "live" | "ok" | "err" }>`
+const Status = styled.span<{ $tone: "live" | "ok" | "warn" | "err" }>`
   display: inline-flex;
   gap: 6px;
   align-items: center;
   font-weight: 600;
-  color: ${({ $tone }) => ($tone === "ok" ? "var(--ok)" : $tone === "err" ? "var(--err)" : "var(--blue)")};
+  color: ${({ $tone }) =>
+    $tone === "ok" ? "var(--ok)" : $tone === "err" ? "var(--err)" : $tone === "warn" ? "var(--warn)" : "var(--blue)"};
   svg {
     width: 16px;
     height: 16px;
@@ -532,6 +535,23 @@ const ViewTabs: React.FC<{ view: View; onChange: (v: View) => void }> = ({ view,
 
 const TxCopy: React.FC<{ tx: StageTx; testId?: string }> = ({ tx, testId }) => {
   const copy = useCopy();
+  const { data } = useSetup();
+  const explorer = data.chains()[tx.chain].explorerTxUrl;
+  if (explorer)
+    return (
+      <TxButton
+        as="a"
+        href={explorer(tx.hash)}
+        target="_blank"
+        rel="noreferrer"
+        aria-label={`Open the ${txName(tx)} transaction ${tx.hash} in the block explorer`}
+        data-testid={testId}
+        data-hash={tx.hash}
+        title={tx.hash}
+      >
+        {txName(tx)} <span className="h">tx {shortHash(tx.hash)}</span>
+      </TxButton>
+    );
   return (
     <TxButton
       type="button"
@@ -681,7 +701,13 @@ const FindBody: React.FC<{
                     data-testid={`request-option-${r.disputeId}`}
                   >
                     Request #{r.disputeId.toString()} ·{" "}
-                    {r.stage === "switched" ? `Complete · ${r.ruling === 1 ? "On" : "Off"}` : STAGE_LABEL[r.stage]}
+                    {r.stage === "switched"
+                      ? `Complete · ${r.ruling === 1 ? "On" : "Off"}`
+                      : r.stage === "closed"
+                        ? r.refund?.claimed
+                          ? "Closed · refunded"
+                          : "Closed · refund due"
+                        : STAGE_LABEL[r.stage]}
                   </Link>
                 </li>
               ))}
@@ -850,6 +876,75 @@ const SimulateCourt: React.FC<{ req: SwitchRequest; onSent: () => void }> = ({ r
   );
 };
 
+/** The due steps anyone can run, each a button with one line on what it does; the page refreshes once it is mined. */
+const StepActions: React.FC<{
+  req: SwitchRequest;
+  names: { foreign: string; home: string; testnet?: boolean };
+  amount: (value: bigint) => string;
+  onDone: () => Promise<unknown>;
+}> = ({ req, names, amount, onDone }) => {
+  const { data } = useSetup();
+  const [busy, setBusy] = useState<RequestAction | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const steps = actionModels(req, names, { selfServe: !!names.testnet, amount });
+  if (steps.length === 0) return null;
+  const run = async (action: RequestAction) => {
+    setBusy(action);
+    setError(null);
+    try {
+      await data.act(req.disputeId, action);
+      await onDone();
+    } catch (e) {
+      setError(plainError(e));
+    } finally {
+      setBusy(null);
+    }
+  };
+  return (
+    <Steps data-testid="step-actions">
+      {steps.map((step) => (
+        <div key={step.action} className="step" data-testid={`act-${step.action}`}>
+          <LibButton
+            text={step.label}
+            type="button"
+            disabled={!!busy}
+            isLoading={busy === step.action}
+            onClick={() => void run(step.action)}
+          />
+          <p className="note">
+            {step.note} Runs on {step.chain === "foreign" ? names.foreign : names.home}.
+          </p>
+        </div>
+      ))}
+      {error && (
+        <p role="alert" data-testid="step-error" style={{ color: "var(--err)", fontSize: "var(--fs-sm)" }}>
+          {error}
+        </p>
+      )}
+    </Steps>
+  );
+};
+
+const Steps = styled.div`
+  display: grid;
+  gap: 12px;
+  justify-items: inherit;
+  max-width: 320px;
+  .step {
+    display: grid;
+    gap: 6px;
+    justify-items: inherit;
+  }
+  .step > button {
+    min-height: 44px;
+  }
+  .note {
+    margin: 0;
+    font-size: var(--fs-sm);
+    color: var(--muted);
+  }
+`;
+
 const stateIcon = (s: EntryState) =>
   s === "done" ? <Icon.check /> : s === "fail" ? <Icon.alert /> : s === "cur" ? <Icon.clock /> : null;
 
@@ -882,15 +977,17 @@ const EntryRow: React.FC<{
         <div className="top">
           <span className="ev">
             <span data-testid="stage-title">{e.title}</span>
-            <span className="visually-hidden">{STATE_WORD[e.state]}</span>
+            <span className="visually-hidden">{e.word ?? STATE_WORD[e.state]}</span>
           </span>
           <div className="meta">
             {(e.state === "done" || e.state === "fail") && (
               <span className="tm">
                 {e.state === "fail"
-                  ? seen
-                    ? `Pause observed at ${clockTime(seen)}`
-                    : "Already paused when this page opened"
+                  ? e.word
+                    ? e.word
+                    : seen
+                      ? `Pause observed at ${clockTime(seen)}`
+                      : "Already paused when this page opened"
                   : seen
                     ? `Observed at ${clockTime(seen)}`
                     : "Completed before this page opened"}
@@ -952,7 +1049,7 @@ const readView = (): View => {
 const Tracked: React.FC<{ id: bigint }> = ({ id }) => {
   const { data, env } = useSetup();
   const route = useMemo(() => routeConfig(data.chains()), [data]);
-  const names = { foreign: route.from.name, home: route.to.name };
+  const names = { foreign: route.from.name, home: route.to.name, testnet: route.testnet };
   const oracles = useOracles();
   const [view, setViewState] = useState<View>(readView);
   const setView = (v: View) => {
@@ -998,7 +1095,7 @@ const Tracked: React.FC<{ id: bigint }> = ({ id }) => {
 
   // watchRequest cannot report that it stalled, so a periodic read beside it feeds the same error state until the
   // bulb has switched; a success (here or from the subscription) clears the error.
-  const done = req?.stage === "switched";
+  const done = !!req && isFinal(req);
   useEffect(() => {
     if (req === undefined || req === null || done) return;
     return startHealthPoll(
@@ -1025,7 +1122,8 @@ const Tracked: React.FC<{ id: bigint }> = ({ id }) => {
   } | null>(null);
   const [bulbTry, setBulbTry] = useState(0);
   const owner = req?.owner;
-  const switched = req?.stage === "switched";
+  // Read once the request has switched the bulb, or closed without changing it.
+  const switched = req?.stage === "switched" || req?.stage === "closed";
   useEffect(() => {
     if (!owner || !switched) return;
     let live = true;
@@ -1109,7 +1207,11 @@ const Tracked: React.FC<{ id: bigint }> = ({ id }) => {
     );
 
   const canSimulate = !!data.devnet;
-  let n = nowModel(req, oracles, names, { canSimulate, bulb: bulbRead, mine });
+  const tokenDecimals = req.paid.token === "usdc" ? usdcDecimals : 18;
+  const symbol = req.paid.token === "usdc" ? "USDC" : "ETH";
+  const amount = (value: bigint) => formatAmount(value, tokenDecimals, symbol);
+  const failurePath = isFailurePath(req);
+  let n = nowModel(req, oracles, names, { canSimulate, bulb: bulbRead, mine, amount });
   if (ruled && req.stage === "dispute-received")
     n = {
       ...n,
@@ -1120,18 +1222,17 @@ const Tracked: React.FC<{ id: bigint }> = ({ id }) => {
       action: null,
     };
   const paused = req.stage === "failed" ? pausedModel(req, names) : null;
-  const tokenDecimals = req.paid.token === "usdc" ? usdcDecimals : 18;
-  const symbol = req.paid.token === "usdc" ? "USDC" : "ETH";
   const oName = (oid: number) => oracles.find((o) => o.id === oid)?.name ?? `Oracle ${oid}`;
   const doneCount = entries.filter((e) => !e.report && e.state === "done").length;
   const bulb = model?.bulb ?? "waiting";
   const stageEntries = entries.filter((e) => !e.report);
   const reportsFor = (key: string) =>
     entries.filter((e) => e.report && e.report.leg === (key === "dispute-relaying" ? "dispute" : "ruling"));
+  const legKeys = ["dispute-relaying", "ruling-relaying", "failure-relaying"];
 
   const statusLine = (
     <Status $tone={n.status} data-testid="track-stage" data-stage={req.stage}>
-      {n.status === "ok" ? <Icon.check /> : n.status === "err" ? <Icon.alert /> : <Icon.clock />}
+      {n.status === "ok" ? <Icon.check /> : n.status === "err" || n.status === "warn" ? <Icon.alert /> : <Icon.clock />}
       {n.statusText}
       {n.counts ? ` · ${n.counts}` : ""}
     </Status>
@@ -1221,7 +1322,8 @@ const Tracked: React.FC<{ id: bigint }> = ({ id }) => {
         </div>
         <div className="actions">
           {n.action === "simulate" && <SimulateCourt req={req} onSent={() => setRuled(true)} />}
-          {req.stage === "switched" && bulbRead.kind === "failed" && (
+          <StepActions req={req} names={names} amount={amount} onDone={load} />
+          {(req.stage === "switched" || req.stage === "closed") && bulbRead.kind === "failed" && (
             <LibButton
               small
               variant="secondary"
@@ -1231,7 +1333,9 @@ const Tracked: React.FC<{ id: bigint }> = ({ id }) => {
               data-testid="bulb-retry"
             />
           )}
-          {req.stage === "switched" && <ButtonLink to="/">Send another request</ButtonLink>}
+          {(req.stage === "switched" || (req.stage === "closed" && n.action === "done")) && (
+            <ButtonLink to="/">Send another request</ButtonLink>
+          )}
         </div>
       </NowPanel>
 
@@ -1241,7 +1345,7 @@ const Tracked: React.FC<{ id: bigint }> = ({ id }) => {
             <div>
               <h2 id="progress-h">Progress</h2>
               <p>
-                {doneCount} of 6 steps done.
+                {doneCount} of {stageEntries.length} steps done.
                 {view === "steps" ? " Expand reports or transaction details below." : ""}
               </p>
             </div>
@@ -1254,7 +1358,7 @@ const Tracked: React.FC<{ id: bigint }> = ({ id }) => {
                   <EntryRow
                     key={e.key}
                     e={e}
-                    reports={e.key === "dispute-relaying" || e.key === "ruling-relaying" ? reportsFor(e.key) : []}
+                    reports={legKeys.includes(e.key) ? reportsFor(e.key) : []}
                     seen={seen.current.get(e.key) || undefined}
                     names={names}
                   />
@@ -1280,7 +1384,7 @@ const Tracked: React.FC<{ id: bigint }> = ({ id }) => {
           <Facts data-testid="dispute-record">
             <div className="wide">
               <dt>Route</dt>
-              <dd data-testid="record-route">{`${names.foreign} → ${names.home} → ${names.foreign} · Local devnet`}</dd>
+              <dd data-testid="record-route">{`${names.foreign} → ${names.home} → ${names.foreign} · ${route.networkLabel}`}</dd>
             </div>
             <div>
               <dt>Paid</dt>
@@ -1317,8 +1421,19 @@ const Tracked: React.FC<{ id: bigint }> = ({ id }) => {
             </div>
             <div>
               <dt>Decision</dt>
-              <dd data-testid="ruling">{req.ruling === 0 ? "Not decided yet" : rulingName(req.ruling)}</dd>
+              <dd data-testid="ruling">
+                {failurePath ? "None: the case was not opened" : req.ruling === 0 ? "Not decided yet" : rulingName(req.ruling)}
+              </dd>
             </div>
+            {req.refund && (
+              <div>
+                <dt>Refund</dt>
+                <dd data-testid="refund">
+                  {amount(req.refund.amount)} ·{" "}
+                  {req.refund.claimed ? `paid to ${shortAddress(req.refund.claimed.beneficiary)}` : "not claimed yet"}
+                </dd>
+              </div>
+            )}
             <div>
               <dt>Request ID</dt>
               <dd data-testid="request-id">
@@ -1328,7 +1443,11 @@ const Tracked: React.FC<{ id: bigint }> = ({ id }) => {
             <div>
               <dt>Court case ID</dt>
               <dd data-testid="home-dispute">
-                {req.homeDisputeId !== null ? `#${req.homeDisputeId.toString()} · ${names.home}` : "Not created yet"}
+                {req.homeDisputeId !== null
+                  ? `#${req.homeDisputeId.toString()} · ${names.home}`
+                  : failurePath || req.actions.includes("send-failure")
+                    ? "Not opened"
+                    : "Not created yet"}
               </dd>
             </div>
           </Facts>
@@ -1366,6 +1485,12 @@ const Tracked: React.FC<{ id: bigint }> = ({ id }) => {
                   <p className="mono">
                     LightbulbSwitched({shortAddress(req.owner)}, {req.disputeId.toString()},{" "}
                     {req.ruling === 1 ? "true" : "false"})
+                  </p>
+                )}
+                {req.stage === "closed" && (
+                  <p className="mono">
+                    LightbulbRequestFailed({shortAddress(req.owner)}, {req.disputeId.toString()})
+                    {req.refund?.claimed ? ` · RefundClaimed(${req.disputeId.toString()}, ${shortAddress(req.refund.claimed.beneficiary)})` : ""}
                   </p>
                 )}
               </div>

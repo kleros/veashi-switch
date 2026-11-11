@@ -6,7 +6,12 @@ import { parseAbi } from "viem";
 const MESSAGE =
   "(uint256 nonce, uint256 targetChainId, uint256 threshold, address sender, address receiver, bytes data, address[] reporters, address[] adapters)";
 
+// IForeignGateway.DisputeMessage: what HomeGateway.onMessage records and createReceivedDispute takes back.
+const DISPUTE_MESSAGE =
+  "(address foreignArbitrable, uint256 foreignDisputeID, uint256 choices, bytes extraData, uint256 externalDisputeID, uint256 templateId, string templateUri, uint256[] oracleIDs, uint256 threshold)";
+
 export const foreignGatewayAbi = parseAbi([
+  "function yaru() view returns (address)",
   "function oracleCount() view returns (uint256)",
   "function oracles(uint256) view returns (address outboundReporter, address outboundAdapter, address inboundAdapter, bool enabled)",
   "function oracleBridgingCost(uint256) view returns (uint256)",
@@ -20,8 +25,15 @@ export const foreignGatewayAbi = parseAbi([
   "function arbitrationCost(bytes, uint256[]) view returns (uint256)",
   "function arbitrationCost(bytes, address) view returns (uint256)",
   "function arbitrationCost(bytes, uint256[], address) view returns (uint256)",
-  "function disputeHashtoDisputeData(bytes32) view returns (uint248 id, bool ruled, address arbitrable, bool relayed, address feeToken, uint256 paid)",
+  "function disputeHashtoDisputeData(bytes32) view returns (uint248 id, bool ruled, address arbitrable, bool relayed, address feeToken, uint256 feesForJurors, uint256 feesForBridging)",
+  "function receivedRulings(uint256) view returns (uint256 ruling, bool creationFailed, bool executed)",
+  "function pendingRefunds(uint256) view returns (bytes32)",
+  "function executeRuling(uint256 _disputeID)",
   "event DisputeRelayed(bytes32 indexed _disputeHash, uint256 indexed _messageId)",
+  "event RulingReceived(uint256 indexed _disputeID, bytes32 indexed _disputeHash, uint256 _ruling)",
+  "event CreationFailureReceived(uint256 indexed _disputeID, bytes32 indexed _disputeHash)",
+  "event DisputeCreationFailed(address indexed _arbitrable, uint256 indexed _disputeID, bytes32 _disputeHash, address _feeToken, uint256 _amount)",
+  "event RefundClaimed(uint256 indexed _disputeID, address indexed _beneficiary, address _feeToken, uint256 _amount)",
   "error GovernorOnly()",
   "error GovernorOrKeeperOnly()",
   "error YaruOnly()",
@@ -37,16 +49,34 @@ export const foreignGatewayAbi = parseAbi([
   "error DuplicateOracle(uint256 _oracleID)",
   "error TokenNotAccepted()",
   "error TransferFailed()",
+  "error RulingNotReceived()",
+  "error RulingAlreadyExecuted()",
+  "error NoRefundPending()",
+  "error ArbitrableOnly()",
+  "error InsufficientFees()",
+  "error ThresholdBelowMinimum(uint256 _minThreshold)",
+  "error NestedDispatch()",
+  "error UnexpectedMessageId(uint256 messageId, uint256 expectedMessageId)",
 ]);
 
 export const homeGatewayAbi = parseAbi([
-  "function getReceivedDispute(bytes32) view returns ((bool received, uint256 threshold, uint256[] oracleIDs))",
+  "function yaru() view returns (address)",
+  "function getReceivedDispute(bytes32) view returns ((bool created, uint256 threshold, uint256[] oracleIDs, bool creationFailed, uint64 receivedAt, bytes32 messageHash))",
   "function disputeHashtoID(bytes32) view returns (uint256)",
+  "function creationTimeout() view returns (uint256)",
+  `function createReceivedDispute(${DISPUTE_MESSAGE} _message) returns (uint256)`,
+  "function sendCreationFailure(bytes32 _disputeHash) returns (uint256)",
+  `event DisputeReceived(bytes32 indexed _disputeHash, ${DISPUTE_MESSAGE} _message)`,
+  "event DisputeCreationFailed(bytes32 indexed _disputeHash, uint256 _messageId)",
   "event CrossChainDisputeIncoming(address _arbitrator, uint256 _arbitrableChainId, address indexed _arbitrable, uint256 indexed _arbitrableDisputeID, uint256 indexed _arbitratorDisputeID, uint256 _externalDisputeID, uint256 _templateId, string _templateUri)",
   "event RulingDispatched(uint256 indexed _disputeID, bytes32 indexed _disputeHash, uint256 _ruling, uint256 _messageId)",
   "error ArbitratorOnly()",
   "error ForeignGatewayMessageSenderOnly()",
   "error DisputeAlreadyReceived()",
+  "error DisputeAlreadyCreated()",
+  "error CreationFailureAlreadySent()",
+  "error CreationTimeoutNotPassed()",
+  "error UnexpectedMessage()",
   "error InsufficientFunds(uint256 _required, uint256 _available)",
 ]);
 
@@ -60,8 +90,11 @@ export const lightbulbAbi = parseAbi([
   "function requestSwitchWithToken(address _feeToken) returns (uint256)",
   "function requestSwitchWithToken(uint256[] _oracleIDs, uint256 _threshold, address _feeToken) returns (uint256)",
   "event LightbulbRequested(address indexed _owner, uint256 indexed _disputeID, uint256[] _oracleIDs, uint256 _threshold)",
+  "function claimRefund(uint256 _disputeID)",
   "event LightbulbSwitched(address indexed _owner, uint256 indexed _disputeID, bool _isOn)",
+  "event LightbulbRequestFailed(address indexed _owner, uint256 indexed _disputeID)",
   "error GatewayOnly()",
+  "error OwnerOnly()",
   "error UnknownDispute()",
   "error AlreadyRuled()",
   "error InsufficientPayment()",
@@ -105,6 +138,7 @@ export const yaruAbi = parseAbi([
 
 export const reporterAbi = parseAbi([
   "function name() view returns (string)",
+  "function PROVIDER() view returns (string)", // the Veashi SDK reporters: "vea", "ccip", ...
   "error ReporterCannotPay(string oracle, uint256 required, uint256 available)",
   "error NotYaho(address sender, address expectedYaho)",
 ]);

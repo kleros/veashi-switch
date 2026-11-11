@@ -1,8 +1,7 @@
 import React from "react";
 import { NOT_CONFIGURED_PREFIX } from "../data/env";
+import { TESTNET_BUILD as isTestnetBuild } from "./setup";
 import { Callout, LibButton } from "./ui";
-
-const isTestnetBuild = import.meta.env.VITE_VEASHI_NETWORK === "testnet";
 
 /** The page heading and lead sentence for a failed start: devnet copy locally, testnet copy on the deployed site. */
 export function setupCopy(error: string): { heading: string; lede: string } {

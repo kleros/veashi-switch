@@ -4,18 +4,24 @@ import type { ChainInfo, CostQuote, OracleSelection, PayToken, SwitchRequest } f
 export interface RouteConfig {
   from: ChainInfo;
   to: ChainInfo;
-  fromLabel: string; // "Base-like local devnet"
+  testnet: boolean; // public testnets rather than the local devnet
+  networkLabel: string; // "Local devnet" or "Public testnet"
+  fromLabel: string; // "Base-like local devnet", "Base Sepolia"
   toLabel: string;
-  pill: string; // "Local · Base-like → Arbitrum-like"
+  pill: string; // "Local · Base-like → Arbitrum-like", "Testnet · Base Sepolia → Arbitrum Sepolia"
 }
 
 export function routeConfig(chains: { foreign: ChainInfo; home: ChainInfo }): RouteConfig {
+  const testnet = chains.foreign.network === "testnet";
+  const where = testnet ? "" : " local devnet";
   return {
     from: chains.foreign,
     to: chains.home,
-    fromLabel: `${chains.foreign.name} local devnet`,
-    toLabel: `${chains.home.name} local devnet`,
-    pill: `Local · ${chains.foreign.name} → ${chains.home.name}`,
+    testnet,
+    networkLabel: testnet ? "Public testnet" : "Local devnet",
+    fromLabel: `${chains.foreign.name}${where}`,
+    toLabel: `${chains.home.name}${where}`,
+    pill: `${testnet ? "Testnet" : "Local"} · ${chains.foreign.name} → ${chains.home.name}`,
   };
 }
 
@@ -35,7 +41,7 @@ export function walletGate(args: {
 }): WalletGate {
   const { networkUp, status, chainId, route } = args;
   if (!networkUp)
-    return { state: "unavailable", message: "Local network unavailable", canTransact: false };
+    return { state: "unavailable", message: route.testnet ? "Network unavailable" : "Local network unavailable", canTransact: false };
   if (status === "connecting") return { state: "connecting", message: "Connecting…", canTransact: false };
   if (status === "disconnected")
     return { state: "disconnected", message: "Connect a wallet to send. The route and fees are visible without one.", canTransact: false };

@@ -1,7 +1,7 @@
 import { ContractFunctionExecutionError, ContractFunctionRevertedError, encodeErrorResult, parseEther, UserRejectedRequestError } from "viem";
 import { describe, expect, it } from "vitest";
 import { allErrorsAbi } from "./abi";
-import { A, sampleEnv } from "./testing";
+import { A, sampleDevnetEnv } from "./testing";
 import { createSwitchData, createWagmiConfig } from "./index";
 import { runRule, toFailure, type RuleDeps } from "./chain";
 import { CANCELLED_BEFORE_SENDING, describeError, findRevert, MINED_REVERT, toSwitchError, withLead } from "./errors";
@@ -34,6 +34,23 @@ describe("reverts decode to plain language", () => {
     expect(detail).toContain("HomeGateway on Arbitrum-like");
     expect(detail).toContain("0.0027 ETH");
     expect(detail).toContain("0.001 ETH");
+  });
+  it("the underfunded court side on the testnets names no local devnet or local operator", () => {
+    const text = describeError(revert("InsufficientFunds", [parseEther("0.0027"), 0n]), {
+      homeChainName: "Arbitrum Sepolia",
+      network: "testnet",
+    });
+    expect(first(text)).toBe("The court side lacks ETH to open the case. Its operator needs to fund it.");
+    expect(text).toContain("anyone can open the case once it is funded");
+  });
+  it("the creation window, the failure and the refund", () => {
+    expect(describeError(revert("CreationTimeoutNotPassed"))).toMatch(/still has time to open the case/);
+    expect(describeError(revert("CreationFailureAlreadySent"))).toBe("The failure was already sent back.");
+    expect(describeError(revert("DisputeAlreadyCreated"))).toBe("The court already opened this case.");
+    expect(describeError(revert("RulingNotReceived"))).toMatch(/Nothing has come back/);
+    expect(describeError(revert("RulingAlreadyExecuted"))).toMatch(/already applied/);
+    expect(describeError(revert("NoRefundPending"))).toMatch(/No refund is due/);
+    expect(first(describeError(revert("ThresholdBelowMinimum", [3n])))).toMatch(/at least 3 oracles/);
   });
   it("a reporter that cannot pay", () => {
     const text = describeError(revert("ReporterCannotPay", ["LayerZero", parseEther("0.00043"), 0n]));
@@ -99,7 +116,7 @@ describe("reverts decode to plain language", () => {
 
 describe("pre-send and mined failures keep one honest lead", () => {
   it("requestSwitch and approveUsdc with no connected account lead with Cancelled before sending", async () => {
-    const env = { ...sampleEnv(), foreign: { ...sampleEnv().foreign, rpcUrl: "http://127.0.0.1:1" }, home: { ...sampleEnv().home, rpcUrl: "http://127.0.0.1:2" } };
+    const env = { ...sampleDevnetEnv(), foreign: { ...sampleDevnetEnv().foreign, rpcUrl: "http://127.0.0.1:1" }, home: { ...sampleDevnetEnv().home, rpcUrl: "http://127.0.0.1:2" } };
     const data = createSwitchData(env, createWagmiConfig(env));
     const sel = null as never;
     for (const run of [() => data.requestSwitch(sel, "native"), () => data.approveUsdc(1n)]) {

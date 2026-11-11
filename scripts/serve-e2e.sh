@@ -13,6 +13,9 @@ bin() { echo "$APP/node_modules/.bin/$1"; }
 export VEASHI_FOREIGN_PORT="${VEASHI_FOREIGN_PORT:-auto}"
 export VEASHI_HOME_PORT="${VEASHI_HOME_PORT:-auto}"
 export VITE_VEASHI_TEST_WALLET=true # devnet.json carries testWallet: true as well
+# A short creation window, so the creation-failure spec need not wait a minute. Creation itself has no deadline:
+# the relay service still opens every funded case, however late, until someone sends the failure.
+export VEASHI_CREATION_TIMEOUT="${VEASHI_CREATION_TIMEOUT:-12}"
 
 CHILD=""
 STARTED=0

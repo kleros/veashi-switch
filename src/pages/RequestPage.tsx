@@ -5,7 +5,7 @@ import styled, { css, keyframes } from "styled-components";
 import type { CostQuote, Oracle, OracleSelection, PayToken, SelectionError, SwitchRequest } from "../data";
 import { Circuit } from "../components/Circuit";
 import { previewModel } from "../components/circuitModel";
-import { AGREEMENT_HINT, REQUEST_INTRO } from "../components/copy";
+import { AGREEMENT_HINT, requestIntro } from "../components/copy";
 import { costBreakdown } from "../components/costModel";
 import { plainError, sendFailure, type SendFailure } from "../components/errors";
 import { shortHash } from "../components/format";
@@ -825,7 +825,7 @@ export const RequestPage: React.FC = () => {
           <h2 id="oracles-h" data-step-heading>
             Choose oracles
           </h2>
-          <p>Oracles carry the request and decision between the two local chains.</p>
+          <p>Oracles carry the request and decision between the two {route.testnet ? "test networks" : "local chains"}.</p>
         </div>
         {mode === "custom" && ids.length > 0 && (
           <LibButton
@@ -841,7 +841,7 @@ export const RequestPage: React.FC = () => {
 
       {loadError && !oracles && (
         <Callout tone="err" title="Could not load oracles" data-testid="oracles-error">
-          <p>The gateway on {names.foreign} did not answer. Check the local devnet, then retry.</p>
+          <p>The gateway on {names.foreign} did not answer. {route.testnet ? "Check your connection" : "Check the local devnet"}, then retry.</p>
           <p style={{ marginTop: 8 }}>
             <LibButton
               small
@@ -1004,7 +1004,7 @@ export const RequestPage: React.FC = () => {
       <Review data-testid="review">
         <dt>Route</dt>
         <dd data-testid="review-route">
-          {names.foreign} → {names.home} · Local devnet
+          {names.foreign} → {names.home} · {route.networkLabel}
         </dd>
         <LibButton
           small
@@ -1124,7 +1124,7 @@ export const RequestPage: React.FC = () => {
                   {breakdown.total}
                 </span>
               </Total>
-              <Note>Network gas extra, paid in local ETH</Note>
+              <Note>Network gas extra, paid in {route.testnet ? "testnet" : "local"} ETH</Note>
               {paymentNote}
             </>
           )}
@@ -1220,7 +1220,7 @@ export const RequestPage: React.FC = () => {
       <PageHead>
         <div>
           <h1>Ask Kleros to switch your lightbulb</h1>
-          <p>{REQUEST_INTRO}</p>
+          <p>{requestIntro(route.testnet ? "testnet" : "devnet")}</p>
         </div>
       </PageHead>
 

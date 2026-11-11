@@ -10,11 +10,10 @@ export * from "./types";
 
 /** The chain-backed config, as parsed by env.ts: public/devnet.json on the devnet, config/testnet.json on a testnet. */
 export interface DevnetEnv {
-  // Optional so that older literals (the fake setup, test fixtures) still type-check; parseDevnetEnv always fills
-  // them in: kind "devnet", explorerUrl null and fromBlock 0n when absent.
-  kind?: NetworkKind;
-  foreign: { chainId: number; rpcUrl: string; name: string; explorerUrl?: string | null; fromBlock?: bigint };
-  home: { chainId: number; rpcUrl: string; name: string; explorerUrl?: string | null; fromBlock?: bigint };
+  // parseDevnetEnv fills these in for a devnet.json without them: kind "devnet", explorerUrl null, fromBlock 0n.
+  kind: NetworkKind;
+  foreign: { chainId: number; rpcUrl: string; name: string; explorerUrl: string | null; fromBlock: bigint };
+  home: { chainId: number; rpcUrl: string; name: string; explorerUrl: string | null; fromBlock: bigint };
   addresses: {
     foreign: Record<string, Address>; // ForeignGateway, GatewayLightbulb, USDC, Yaho, Yaru, adapters...
     home: Record<string, Address>; // HomeGateway, KlerosCoreRuler, Yaho, Yaru, adapters...

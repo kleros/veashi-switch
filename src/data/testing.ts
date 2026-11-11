@@ -1,4 +1,5 @@
 // Fixtures for the data module's unit tests (never imported by the app).
+import type { DevnetEnv } from "./index";
 
 export const A = (n: number) => `0x${n.toString(16).padStart(40, "0")}` as `0x${string}`;
 export const sampleEnv = () => ({
@@ -10,3 +11,14 @@ export const sampleEnv = () => ({
   },
   testWallet: true,
 });
+
+/** sampleEnv as the data layer receives it: with parseDevnetEnv's defaults for a devnet.json that omits them. */
+export const sampleDevnetEnv = (): DevnetEnv => {
+  const raw = sampleEnv();
+  return {
+    ...raw,
+    kind: "devnet",
+    foreign: { ...raw.foreign, explorerUrl: null, fromBlock: 0n },
+    home: { ...raw.home, explorerUrl: null, fromBlock: 0n },
+  };
+};

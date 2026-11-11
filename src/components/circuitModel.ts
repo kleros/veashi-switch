@@ -1,4 +1,5 @@
-import type { ChainKey, Oracle, OracleReport, RequestStage, StageTx, SwitchRequest } from "../data";
+import type { ChainKey, FlowStage, Oracle, OracleReport, StageTx, SwitchRequest } from "../data";
+import { isFailurePath, reachedStage as reachedFlowStage } from "../data/lifecycle";
 import { rulingName, stageIndex } from "./format";
 import type { BulbRead } from "./readState";
 
@@ -32,14 +33,24 @@ export interface CircuitModel {
 export interface ChainNames {
   foreign: string;
   home: string;
+  testnet?: boolean; // a public testnet: no local operator, anyone may have to run a step
 }
 
 export const NODE_TITLES: Record<NodeKey, string> = {
   foreignOut: "Request sent",
-  homeIn: "Court received",
+  homeIn: "Delivered",
   court: "Decision",
   homeOut: "Decision returning",
   foreignIn: "Bulb updated",
+};
+
+/** A request the court could not open in time: the same circuit carries the failure back and closes it. */
+export const FAILURE_NODE_TITLES: Record<NodeKey, string> = {
+  foreignOut: "Request sent",
+  homeIn: "Delivered",
+  court: "Case not opened",
+  homeOut: "Failure returning",
+  foreignIn: "Request closed",
 };
 
 /** The Request preview draws the route before anything happened: its nodes name actions, not events. */
@@ -62,13 +73,14 @@ function nodeSubs(names: ChainNames, home: string): Record<NodeKey, string> {
 }
 
 // Which stage's transaction a finished node shows, first match wins. executeRuling runs HomeGateway.rule and
-// dispatches the ruling, so the court and its dispatch share that tx; ruling-leg reports land on the foreign chain.
-const NODE_TX: Record<NodeKey, Exclude<RequestStage, "failed">[]> = {
+// dispatches the ruling, so the court and its dispatch share that tx (sendCreationFailure likewise dispatches the
+// failure); return-leg reports land on the foreign chain.
+const NODE_TX: Record<NodeKey, FlowStage[]> = {
   foreignOut: ["submitted"],
-  homeIn: ["dispute-received", "dispute-relaying"],
-  court: ["ruled"],
-  homeOut: ["ruled", "ruling-relaying"],
-  foreignIn: ["switched"],
+  homeIn: ["dispute-received", "dispute-delivered", "dispute-relaying"],
+  court: ["ruled", "creation-failed"],
+  homeOut: ["ruled", "ruling-relaying", "creation-failed", "failure-relaying"],
+  foreignIn: ["switched", "closed"],
 };
 
 // The chain each node sits on: a node never shows a tx from the other chain.
@@ -119,15 +131,9 @@ function oracleList(oracles: Oracle[], extra: number[]): { id: number; name: str
   return list.sort((a, b) => a.id - b.id);
 }
 
-/** How far a failed request got: the last stage its txs, reports or ids prove. */
+/** How far a request got, 0 to 6: for a paused one, the step it paused in. */
 export function reachedStage(req: SwitchRequest): number {
-  let s = 0;
-  for (const t of req.txs) s = Math.max(s, stageIndex(t.stage));
-  if (req.reports.some((r) => r.leg === "dispute")) s = Math.max(s, 1);
-  if (req.homeDisputeId !== null) s = Math.max(s, 2);
-  if (req.ruling !== 0) s = Math.max(s, 3);
-  if (req.reports.some((r) => r.leg === "ruling")) s = Math.max(s, 4);
-  return s;
+  return stageIndex(reachedFlowStage(req));
 }
 
 function txFor(req: SwitchRequest, key: NodeKey): StageTx | undefined {
@@ -149,19 +155,22 @@ export function requestModel(
   mine = false,
 ): CircuitModel {
   const failed = req.stage === "failed";
-  const s = failed ? reachedStage(req) : stageIndex(req.stage);
+  const failurePath = isFailurePath(req);
+  const s = reachedStage(req);
   const { oracleIds: selected, threshold: k } = req.selection;
+  const waiting = s === 2 && !failed;
+  const stuck = waiting && (req.creation?.blocker != null || req.actions.includes("send-failure"));
   const dispute = leg(selected, k, s >= 2 ? "done" : "live", req.reports, "dispute");
-  const ruling = leg(selected, k, s >= 5 ? "done" : s === 4 ? "live" : "ready", req.reports, "ruling");
+  const ruling = leg(selected, k, s >= 6 ? "done" : s === 5 ? "live" : "ready", req.reports, "ruling");
   const nodes: Record<NodeKey, NodeState> = {
     foreignOut: "done",
     homeIn: s >= 2 ? "done" : s === 1 && dispute.attested >= k ? "active" : "idle",
-    court: s >= 3 ? "done" : s === 2 ? "active" : "idle",
-    homeOut: s >= 4 ? "done" : s === 3 ? "active" : "idle",
-    foreignIn: s >= 5 ? "done" : s === 4 && ruling.attested >= k ? "active" : "idle",
+    court: failurePath ? "fail" : s >= 4 ? "done" : stuck ? "fail" : s >= 2 ? "active" : "idle",
+    homeOut: s >= 5 ? "done" : s === 4 ? "active" : "idle",
+    foreignIn: s >= 6 ? "done" : s === 5 && ruling.attested >= k ? "active" : "idle",
   };
   if (failed) {
-    const next = NODE_ORDER.find((n) => nodes[n] !== "done");
+    const next = NODE_ORDER.find((n) => nodes[n] !== "done" && nodes[n] !== "fail");
     if (next === "homeIn" && dispute.attested < k) {
       dispute.status = "fail";
       dispute.caption = caption("fail", dispute.attested, k, selected.length);
@@ -172,33 +181,43 @@ export function requestModel(
   }
   const tx: Partial<Record<NodeKey, StageTx>> = {};
   for (const n of NODE_ORDER) {
-    const t = nodes[n] === "done" ? txFor(req, n) : undefined;
+    const t = nodes[n] === "done" || (n === "court" && failurePath) ? txFor(req, n) : undefined;
     if (t) tx[n] = t;
   }
   const home = req.homeDisputeId !== null ? `#${req.homeDisputeId.toString()}` : "";
   const sub = nodeSubs(names, home);
-  if (s >= 3) sub.court = `${sub.court} · ${req.ruling === 1 ? "On" : "Off"}`;
+  if (s >= 4 && !failurePath) sub.court = `${sub.court} · ${req.ruling === 1 ? "On" : "Off"}`;
+  if (failurePath) sub.court = "Kleros Court · no case";
 
   let bulb: BulbState = "waiting";
   let bulbLabel: [string, string];
-  if (s >= 5 && !failed) {
-    const who = mine ? "Your bulb now" : "Requester's bulb now";
+  const who = mine ? "Your bulb now" : "Requester's bulb now";
+  const known = (lead: string, note: string): [string, string] => {
     if (bulbRead.kind === "known") {
       bulb = bulbRead.on ? "on" : "off";
-      bulbLabel = [`${who}: ${bulbRead.on ? "On" : "Off"}`, `Current bulb state on ${names.foreign} local devnet`];
-    } else {
-      // unknown: drawn unlit and not called on, off or waiting
-      bulb = "unknown";
-      bulbLabel =
-        bulbRead.kind === "failed"
-          ? ["Current bulb state unavailable", "Use Retry bulb check below the status"]
-          : ["Checking bulb…", `Looking it up on ${names.foreign} local devnet`];
+      return [`${lead}: ${bulbRead.on ? "On" : "Off"}`, note];
     }
+    // unknown: drawn unlit and not called on, off or waiting
+    bulb = "unknown";
+    return bulbRead.kind === "failed"
+      ? ["Current bulb state unavailable", "Use Retry bulb check below the status"]
+      : ["Checking bulb…", `Looking it up on ${names.foreign}`];
+  };
+  if (s >= 6 && !failed && failurePath) {
+    bulbLabel = known("Bulb unchanged", req.refund?.claimed ? "The case was not opened; juror fees refunded" : "The case was not opened; refund available");
+  } else if (s >= 6 && !failed) {
+    bulbLabel = known(who, `Current bulb state on ${names.foreign}`);
   } else if (failed) {
     bulbLabel = ["Delivery paused", "See the status above"];
+  } else if (failurePath) {
+    bulbLabel = ["Bulb will not change", `The failure is crossing back to ${names.foreign}`];
   } else if (s <= 1) {
     bulbLabel = ["Waiting for the decision", `The request is crossing to ${names.home}`];
   } else if (s === 2) {
+    bulbLabel = stuck
+      ? ["Waiting for the court", "The case is not open yet"]
+      : ["Waiting for the court", `Opening the case on ${names.home}`];
+  } else if (s === 3) {
     bulbLabel = ["Waiting for the court's decision", `Court case ${home}`];
   } else {
     bulbLabel = ["Waiting for delivery", `The decision, ${rulingName(req.ruling)}, is crossing back to ${names.foreign}`];
@@ -210,7 +229,7 @@ export function requestModel(
     dispute,
     ruling,
     nodes,
-    titles: NODE_TITLES,
+    titles: failurePath ? FAILURE_NODE_TITLES : NODE_TITLES,
     sub,
     tx,
     bulb,
@@ -244,9 +263,9 @@ export function previewModel(
       bulbRead.kind === "disconnected"
         ? ["Your bulb", "Connect a wallet to see its state"]
         : bulbRead.kind === "loading"
-          ? ["Checking bulb…", `Looking it up on ${names.foreign} local devnet`]
+          ? ["Checking bulb…", `Looking it up on ${names.foreign}`]
           : bulbRead.kind === "failed"
-            ? ["Couldn't read bulb state", `Could not read it on ${names.foreign} local devnet`]
-            : [bulbRead.on ? "Your bulb is on" : "Your bulb is off", `Current bulb state on ${names.foreign} local devnet`],
+            ? ["Couldn't read bulb state", `Could not read it on ${names.foreign}`]
+            : [bulbRead.on ? "Your bulb is on" : "Your bulb is off", `Current bulb state on ${names.foreign}`],
   };
 }

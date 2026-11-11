@@ -1,13 +1,12 @@
-// The chain-backed SwitchData: viem public clients read both devnet chains, the wagmi config's connected wallet
-// writes on the foreign chain, and `devnet.rule` uses the anvil dev account on the home chain.
+// The chain-backed SwitchData: viem public clients read both chains (the local devnet or the public testnets), the
+// wagmi config's connected wallet writes (the request on the foreign chain; `act` on whichever chain the step runs
+// on), and on the devnet `devnet.rule` gives the court's ruling with the anvil dev account on the home chain.
 import {
   createPublicClient,
   createWalletClient,
-  defineChain,
   http,
   parseEventLogs,
   zeroAddress,
-  type Chain,
   type PublicClient,
 } from "viem";
 import type { Config } from "wagmi";
@@ -24,9 +23,11 @@ import {
   yahoAbi,
   yaruAbi,
 } from "./abi";
-import type { ParsedDevnetEnv } from "./env";
+import { explorerTxUrl, type ParsedDevnetEnv } from "./env";
+import { getContractEventsPaged } from "./logs";
+import { viemChains } from "./networks";
 import { CANCELLED_BEFORE_SENDING, describeError, MINED_REVERT, SwitchError, toSwitchError, withLead, type ErrorContext } from "./errors";
-import { buildRequest, projectTo, stageSteps, type LegFacts, type RequestFacts } from "./lifecycle";
+import { buildRequest, isFinal, projectTo, stageSteps, type LegFacts, type RequestFacts } from "./lifecycle";
 import { assembleQuote, decodeCourtAndJurors } from "./quote";
 import { normalizeSelection, validateSelection } from "./selection";
 import type {
@@ -37,6 +38,7 @@ import type {
   Oracle,
   OracleSelection,
   PayToken,
+  RequestAction,
   SwitchData,
   SwitchRequest,
   Unsubscribe,
@@ -46,19 +48,12 @@ import type {
 export const DEV_ACCOUNT: Address = "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266";
 
 export const WATCH_INTERVAL_MS = 1000;
-const POLL_MS = 250; // receipts on the local anvil chains (viem defaults to 4 s)
+const POLL_MS = { devnet: 250, testnet: 2000 }; // receipt polling: anvil answers at once, public RPCs are rate-limited
+const READ_BACK_ATTEMPTS = 5; // extra reads of a mined request before reporting that it cannot be read back
+const TESTNET_WATCH_INTERVAL_MS = 6000;
 
-export function devnetChains(env: ParsedDevnetEnv): { foreign: Chain; home: Chain } {
-  const make = (c: ParsedDevnetEnv["foreign"]) =>
-    defineChain({
-      id: c.chainId,
-      name: c.name,
-      nativeCurrency: { name: "Ether", symbol: "ETH", decimals: 18 },
-      rpcUrls: { default: { http: [c.rpcUrl] } },
-      testnet: true,
-    });
-  return { foreign: make(env.foreign), home: make(env.home) };
-}
+/** The two chains as viem chains (kept under this name for the devnet scripts). */
+export const devnetChains = viemChains;
 
 /** The lightbulb call for a selection and token: the right overload and the value to send. */
 export function requestCall(
@@ -91,7 +86,40 @@ type Message = {
   adapters: readonly Address[];
 };
 
+type DisputeMessage = {
+  foreignArbitrable: Address;
+  foreignDisputeID: bigint;
+  choices: bigint;
+  extraData: Hex;
+  externalDisputeID: bigint;
+  templateId: bigint;
+  templateUri: string;
+  oracleIDs: readonly bigint[];
+  threshold: bigint;
+};
+
+/** What `act` needs besides the facts: the messages and the hash each step is called with. */
+interface Handles {
+  disputeHash: Hex | null;
+  disputeMessage: DisputeMessage | null; // HomeGateway DisputeReceived: createReceivedDispute takes it back
+  disputeLeg: Message | null; // the dispute leg's Yaho message, for Yaru.executeMessages on the home chain
+  returnLeg: Message | null; // the return leg's (ruling or creation failure), for Yaru.executeMessages on the foreign chain
+}
+
 const sameAddress = (a: string, b: string) => a.toLowerCase() === b.toLowerCase();
+
+const ZERO_HASH = `0x${"0".repeat(64)}`;
+
+// The Veashi SDK reporters name their bridge in PROVIDER(); the devnet mocks and older reporters in name().
+const PROVIDER_NAMES: Record<string, string> = {
+  vea: "Vea",
+  ccip: "CCIP",
+  layerzero: "LayerZero",
+  lz: "LayerZero",
+  debridge: "deBridge",
+  axelar: "Axelar",
+};
+export const oracleDisplayName = (raw: string) => PROVIDER_NAMES[raw.toLowerCase()] ?? raw;
 
 /** The SwitchError for a failure; before anything was sent it leads with "Cancelled before sending.". */
 export function toFailure(error: unknown, beforeSending: boolean, context: ErrorContext): SwitchError {
@@ -134,8 +162,10 @@ export async function runRule(deps: RuleDeps, disputeId: bigint, ruling: 1 | 2):
 
 export function createChainSwitchData(env: ParsedDevnetEnv, config: Config): SwitchData {
   const chains = devnetChains(env);
-  const foreign = createPublicClient({ chain: chains.foreign, transport: http(env.foreign.rpcUrl), pollingInterval: POLL_MS }) as PublicClient;
-  const home = createPublicClient({ chain: chains.home, transport: http(env.home.rpcUrl), pollingInterval: POLL_MS }) as PublicClient;
+  const pollingInterval = POLL_MS[env.kind];
+  const foreign = createPublicClient({ chain: chains.foreign, transport: http(env.foreign.rpcUrl), pollingInterval }) as PublicClient;
+  const home = createPublicClient({ chain: chains.home, transport: http(env.home.rpcUrl), pollingInterval }) as PublicClient;
+  const watchInterval = env.kind === "devnet" ? WATCH_INTERVAL_MS : TESTNET_WATCH_INTERVAL_MS;
   const fa = env.addresses.foreign;
   const ha = env.addresses.home;
   const lightbulb = fa.GatewayLightbulb;
@@ -144,11 +174,28 @@ export function createChainSwitchData(env: ParsedDevnetEnv, config: Config): Swi
 
   const info = (key: "foreign" | "home"): ChainInfo => ({
     key,
+    network: env.kind,
     id: env[key].chainId,
     name: env[key].name,
     rpcUrl: env[key].rpcUrl,
-    explorerTxUrl: null,
+    explorerTxUrl: env[key].explorerUrl ? (hash: Hex) => explorerTxUrl(env[key], hash)! : null,
   });
+  const clients = { foreign, home };
+
+  // The Yaru each gateway accepts messages from: read from the gateways rather than trusted from the config.
+  let yaruCache: Promise<{ foreign: Address; home: Address }> | null = null;
+  const yarus = () => {
+    yaruCache ??= Promise.all([
+      foreign.readContract({ address: gateway, abi: foreignGatewayAbi, functionName: "yaru" }),
+      home.readContract({ address: ha.HomeGateway, abi: homeGatewayAbi, functionName: "yaru" }),
+    ])
+      .then(([f, h]) => ({ foreign: f, home: h }))
+      .catch((e) => {
+        yaruCache = null;
+        throw e;
+      });
+    return yaruCache;
+  };
 
   let wiringCache: Promise<OracleWiring[]> | null = null;
   const wiring = (): Promise<OracleWiring[]> => {
@@ -179,6 +226,8 @@ export function createChainSwitchData(env: ParsedDevnetEnv, config: Config): Swi
         if (reporter !== zeroAddress) {
           name = await foreign
             .readContract({ address: reporter, abi: reporterAbi, functionName: "name" })
+            .catch(() => foreign.readContract({ address: reporter, abi: reporterAbi, functionName: "PROVIDER" }))
+            .then(oracleDisplayName)
             .catch(() => name);
         }
         const label = name.charAt(0).toUpperCase() + name.slice(1);
@@ -195,6 +244,7 @@ export function createChainSwitchData(env: ParsedDevnetEnv, config: Config): Swi
     const oracles = await wiring().catch(() => [] as OracleWiring[]);
     return {
       homeChainName: env.home.name,
+      network: env.kind ?? "devnet",
       oracleName: (id) => oracles.find((w) => w.oracle.id === id)?.oracle.name ?? `Oracle #${id}`,
     };
   };
@@ -264,197 +314,354 @@ export function createChainSwitchData(env: ParsedDevnetEnv, config: Config): Swi
   }
 
   async function reportsOf(
-    client: PublicClient,
+    key: "foreign" | "home",
     messageId: bigint,
     adapters: { oracleId: number; adapter: Address }[],
+    fromBlock: bigint,
   ): Promise<LegFacts["reports"]> {
-    const logs = await client.getContractEvents({
+    const logs = await getContractEventsPaged(clients[key], {
       address: adapters.map((a) => a.adapter),
       abi: adapterAbi,
       eventName: "HashStored",
       args: { id: messageId },
-      fromBlock: 0n,
-    });
+    }, { fromBlock });
     return adapters.map(({ oracleId, adapter }) => ({
       oracleId,
       txHash: logs.find((l) => sameAddress(l.address, adapter))?.transactionHash ?? null,
     }));
   }
 
+  /** One leg's facts, and its Yaho message (what Yaru.executeMessages takes on the target chain). */
   async function legFacts(
-    source: PublicClient,
-    target: PublicClient,
+    from: "foreign" | "home",
     dispatchTx: Hex,
     messageId: bigint,
-    yaru: Address,
     adapters: { oracleId: number; adapter: Address }[],
     threshold: number,
-  ): Promise<LegFacts> {
-    const receipt = await source.getTransactionReceipt({ hash: dispatchTx });
+    since: Record<"foreign" | "home", bigint>,
+  ): Promise<{ leg: LegFacts; message: Message | null }> {
+    const to = from === "foreign" ? "home" : "foreign";
+    const target = clients[to];
+    const yaru = (await yarus())[to];
+    const receipt = await clients[from].getTransactionReceipt({ hash: dispatchTx });
     const dispatched = parseEventLogs({ abi: yahoAbi, logs: receipt.logs, eventName: "MessageDispatched" }).find(
       (l) => l.args.messageId === messageId,
     );
-    const reports = await reportsOf(target, messageId, adapters);
-    const executed = await target.getContractEvents({
+    const message = (dispatched?.args.message as Message | undefined) ?? null;
+    const reports = await reportsOf(to, messageId, adapters, since[to]);
+    const executed = await getContractEventsPaged(target, {
       address: yaru,
       abi: yaruAbi,
       eventName: "MessageExecuted",
       args: { messageId },
-      fromBlock: 0n,
-    });
+    }, { fromBlock: since[to] });
     const executedTx = executed[0]?.transactionHash ?? null;
     let failure: string | null = null;
+    let executable = false;
     const reported = reports.filter((r) => r.txHash).length;
-    if (!executedTx && dispatched && reported >= threshold) {
+    if (!executedTx && message && reported >= threshold) {
       // Enough oracles reported but nothing executed yet: simulate the execution to see whether it would revert.
       try {
         await target.simulateContract({
           address: yaru,
           abi: [...yaruAbi, ...allErrorsAbi],
           functionName: "executeMessages",
-          args: [[dispatched.args.message as Message]],
+          args: [[message]],
           account: DEV_ACCOUNT,
         });
+        executable = true;
       } catch (error) {
         const text = describeError(error, await errorContext());
-        // A race with the relayer executing it right now is not a failure.
+        // A race with a keeper executing it right now is not a failure.
         if (text !== describeError({ data: { errorName: "MessageIdAlreadyExecuted", args: [] } })) failure = text;
       }
     }
-    return { messageId, dispatchTx, reports, executedTx, failure };
+    return { leg: { messageId, dispatchTx, reports, executedTx, failure, executable }, message };
   }
 
-  async function factsFor(disputeId: bigint): Promise<RequestFacts | null> {
-    const requested = await foreign.getContractEvents({
+  async function readRequest(disputeId: bigint): Promise<{ facts: RequestFacts; handles: Handles } | null> {
+    const requested = await getContractEventsPaged(foreign, {
       address: lightbulb,
       abi: lightbulbAbi,
       eventName: "LightbulbRequested",
       args: { _disputeID: disputeId },
-      fromBlock: 0n,
-    });
+    }, { fromBlock: env.foreign.fromBlock });
     const log = requested[0];
     if (!log) return null;
+    // Everything after the request happens at or after its block on the foreign chain. Starting the foreign reads there
+    // keeps them short on an RPC that allows only small getLogs ranges (Base Sepolia's own allows 200 blocks).
+    const since = { foreign: log.blockNumber, home: env.home.fromBlock };
     const oracles = await wiring();
     const receipt = await foreign.getTransactionReceipt({ hash: log.transactionHash });
     const block = await foreign.getBlock({ blockNumber: receipt.blockNumber });
     const relayed = parseEventLogs({ abi: foreignGatewayAbi, logs: receipt.logs, eventName: "DisputeRelayed" })[0];
     const owner = log.args._owner as Address;
+    const now = Date.now();
 
-    let selection: OracleSelection = { oracleIds: [], threshold: 0 };
-    let paid: RequestFacts["paid"] = { token: "native", amount: 0n };
-    let dispute: LegFacts | null = null;
-    let received = false;
-    let homeDisputeId: bigint | null = null;
-    let ruling: RequestFacts["ruling"] = null;
-    let rulingLeg: LegFacts | null = null;
-    let switched: RequestFacts["switched"] = null;
-
-    if (relayed) {
-      const { _disputeHash: disputeHash, _messageId: messageId } = relayed.args;
-      const chosen = await foreign.readContract({
-        address: gateway,
-        abi: foreignGatewayAbi,
-        functionName: "getDisputeOracles",
-        args: [disputeHash],
-      });
-      selection = { oracleIds: chosen.oracleIDs.map(Number), threshold: Number(chosen.threshold) };
-      const data = await foreign.readContract({
-        address: gateway,
-        abi: foreignGatewayAbi,
-        functionName: "disputeHashtoDisputeData",
-        args: [disputeHash],
-      });
-      const feeToken = data[4];
-      paid = { token: sameAddress(feeToken, usdc) ? "usdc" : "native", amount: data[5] };
-      const wire = (id: number) => oracles.find((w) => w.oracle.id === id);
-
-      dispute = await legFacts(
-        foreign,
-        home,
-        log.transactionHash,
-        messageId,
-        ha.Yaru,
-        selection.oracleIds.map((oracleId) => ({ oracleId, adapter: wire(oracleId)?.disputeAdapter ?? zeroAddress })),
-        selection.threshold,
-      );
-      const receivedDispute = await home.readContract({
-        address: ha.HomeGateway,
-        abi: homeGatewayAbi,
-        functionName: "getReceivedDispute",
-        args: [disputeHash],
-      });
-      received = receivedDispute.received;
-      if (received) {
-        homeDisputeId = await home.readContract({
-          address: ha.HomeGateway,
-          abi: homeGatewayAbi,
-          functionName: "disputeHashtoID",
-          args: [disputeHash],
-        });
-        const dispatched = await home.getContractEvents({
-          address: ha.HomeGateway,
-          abi: homeGatewayAbi,
-          eventName: "RulingDispatched",
-          args: { _disputeHash: disputeHash },
-          fromBlock: 0n,
-        });
-        const rulingLog = dispatched[0];
-        if (rulingLog) {
-          ruling = { value: rulingLog.args._ruling as bigint, tx: rulingLog.transactionHash };
-          rulingLeg = await legFacts(
-            home,
-            foreign,
-            rulingLog.transactionHash,
-            rulingLog.args._messageId as bigint,
-            fa.Yaru,
-            selection.oracleIds.map((oracleId) => ({ oracleId, adapter: wire(oracleId)?.rulingAdapter ?? zeroAddress })),
-            selection.threshold,
-          );
-          const switchedLogs = await foreign.getContractEvents({
-            address: lightbulb,
-            abi: lightbulbAbi,
-            eventName: "LightbulbSwitched",
-            args: { _disputeID: disputeId },
-            fromBlock: 0n,
-          });
-          if (switchedLogs[0]) switched = { tx: switchedLogs[0].transactionHash };
-        }
-      }
-    }
-
-    return {
+    const facts: RequestFacts = {
       disputeId,
       owner,
-      selection,
-      paid,
+      selection: { oracleIds: [], threshold: 0 },
+      paid: { token: "native", amount: 0n },
       requestTx: log.transactionHash,
       requestedAt: Number(block.timestamp) * 1000,
-      dispute,
-      homeDisputeId,
-      received,
-      ruling,
-      rulingLeg,
-      switched,
-      updatedAt: Date.now(),
+      dispute: null,
+      delivered: null,
+      created: null,
+      creationBlocker: null,
+      creationFailure: null,
+      ruling: null,
+      rulingLeg: null,
+      switched: null,
+      closed: null,
+      refund: null,
+      refundPending: false,
+      homeTime: now,
+      updatedAt: now,
     };
+    const handles: Handles = { disputeHash: null, disputeMessage: null, disputeLeg: null, returnLeg: null };
+    if (!relayed) return { facts, handles };
+
+    const { _disputeHash: disputeHash, _messageId: messageId } = relayed.args;
+    handles.disputeHash = disputeHash;
+    const chosen = await foreign.readContract({
+      address: gateway,
+      abi: foreignGatewayAbi,
+      functionName: "getDisputeOracles",
+      args: [disputeHash],
+    });
+    const selection = { oracleIds: chosen.oracleIDs.map(Number), threshold: Number(chosen.threshold) };
+    facts.selection = selection;
+    const data = await foreign.readContract({
+      address: gateway,
+      abi: foreignGatewayAbi,
+      functionName: "disputeHashtoDisputeData",
+      args: [disputeHash],
+    });
+    const [, , , , feeToken, feesForJurors, feesForBridging] = data;
+    const token: PayToken = sameAddress(feeToken, usdc) ? "usdc" : "native";
+    facts.paid = { token, amount: feesForJurors + feesForBridging };
+    const wire = (id: number) => oracles.find((w) => w.oracle.id === id);
+    const adapters = (side: "disputeAdapter" | "rulingAdapter") =>
+      selection.oracleIds.map((oracleId) => ({ oracleId, adapter: wire(oracleId)?.[side] ?? zeroAddress }));
+
+    const disputeLeg = await legFacts("foreign", log.transactionHash, messageId, adapters("disputeAdapter"), selection.threshold, since);
+    facts.dispute = disputeLeg.leg;
+    handles.disputeLeg = disputeLeg.message;
+
+    const received = await home.readContract({
+      address: ha.HomeGateway,
+      abi: homeGatewayAbi,
+      functionName: "getReceivedDispute",
+      args: [disputeHash],
+    });
+    if (received.receivedAt === 0n) return { facts, handles };
+    const timeout = await home.readContract({ address: ha.HomeGateway, abi: homeGatewayAbi, functionName: "creationTimeout" });
+    facts.homeTime = Number((await home.getBlock()).timestamp) * 1000;
+    facts.delivered = { at: Number(received.receivedAt) * 1000, failableAt: Number(received.receivedAt + timeout) * 1000 };
+
+    // The dispute's return leg, its message, and the foreign-chain events that close the request.
+    const returnLeg = async (dispatchTx: Hex, returnMessageId: bigint) => {
+      const back = await legFacts("home", dispatchTx, returnMessageId, adapters("rulingAdapter"), selection.threshold, since);
+      facts.rulingLeg = back.leg;
+      handles.returnLeg = back.message;
+    };
+
+    if (received.created) {
+      const homeDisputeId = await home.readContract({
+        address: ha.HomeGateway,
+        abi: homeGatewayAbi,
+        functionName: "disputeHashtoID",
+        args: [disputeHash],
+      });
+      const incoming = await getContractEventsPaged(home, {
+        address: ha.HomeGateway,
+        abi: homeGatewayAbi,
+        eventName: "CrossChainDisputeIncoming",
+        args: { _arbitrable: lightbulb, _arbitrableDisputeID: disputeId, _arbitratorDisputeID: homeDisputeId },
+      }, { fromBlock: env.home.fromBlock });
+      facts.created = { tx: incoming[0]?.transactionHash ?? null, homeDisputeId };
+      const dispatched = await getContractEventsPaged(home, {
+        address: ha.HomeGateway,
+        abi: homeGatewayAbi,
+        eventName: "RulingDispatched",
+        args: { _disputeHash: disputeHash },
+      }, { fromBlock: env.home.fromBlock });
+      const rulingLog = dispatched[0];
+      if (rulingLog) {
+        facts.ruling = { value: rulingLog.args._ruling as bigint, tx: rulingLog.transactionHash };
+        await returnLeg(rulingLog.transactionHash, rulingLog.args._messageId as bigint);
+        const switchedLogs = await getContractEventsPaged(foreign, {
+          address: lightbulb,
+          abi: lightbulbAbi,
+          eventName: "LightbulbSwitched",
+          args: { _disputeID: disputeId },
+        }, { fromBlock: since.foreign });
+        if (switchedLogs[0]) facts.switched = { tx: switchedLogs[0].transactionHash };
+      }
+      return { facts, handles };
+    }
+
+    if (!received.creationFailed) {
+      // Delivered, not created: what createReceivedDispute is called with, and whether it would go through now.
+      const deliveredLogs = await getContractEventsPaged(home, {
+        address: ha.HomeGateway,
+        abi: homeGatewayAbi,
+        eventName: "DisputeReceived",
+        args: { _disputeHash: disputeHash },
+      }, { fromBlock: env.home.fromBlock });
+      const message = (deliveredLogs[0]?.args._message as DisputeMessage | undefined) ?? null;
+      handles.disputeMessage = message;
+      if (!message) {
+        facts.creationBlocker = "The delivered dispute cannot be found on the home chain yet.";
+      } else {
+        try {
+          await home.simulateContract({
+            address: ha.HomeGateway,
+            abi: [...homeGatewayAbi, ...allErrorsAbi],
+            functionName: "createReceivedDispute",
+            args: [message],
+            account: DEV_ACCOUNT,
+          });
+        } catch (error) {
+          facts.creationBlocker = describeError(error, await errorContext());
+        }
+      }
+      return { facts, handles };
+    }
+
+    // Not created in time: the failure went back over the same oracles.
+    const failedLogs = await getContractEventsPaged(home, {
+      address: ha.HomeGateway,
+      abi: homeGatewayAbi,
+      eventName: "DisputeCreationFailed",
+      args: { _disputeHash: disputeHash },
+    }, { fromBlock: env.home.fromBlock });
+    const failedLog = failedLogs[0];
+    if (!failedLog) return { facts, handles };
+    facts.creationFailure = { tx: failedLog.transactionHash };
+    await returnLeg(failedLog.transactionHash, failedLog.args._messageId as bigint);
+    const closedLogs = await getContractEventsPaged(foreign, {
+      address: lightbulb,
+      abi: lightbulbAbi,
+      eventName: "LightbulbRequestFailed",
+      args: { _disputeID: disputeId },
+    }, { fromBlock: since.foreign });
+    if (!closedLogs[0]) return { facts, handles };
+    facts.closed = { tx: closedLogs[0].transactionHash };
+    const refundLogs = await getContractEventsPaged(foreign, {
+      address: gateway,
+      abi: foreignGatewayAbi,
+      eventName: "DisputeCreationFailed",
+      args: { _disputeID: disputeId },
+    }, { fromBlock: since.foreign });
+    const claimedLogs = await getContractEventsPaged(foreign, {
+      address: gateway,
+      abi: foreignGatewayAbi,
+      eventName: "RefundClaimed",
+      args: { _disputeID: disputeId },
+    }, { fromBlock: since.foreign });
+    const owed = refundLogs[0]?.args;
+    const claimed = claimedLogs[0];
+    facts.refund = {
+      token: owed?._feeToken && sameAddress(owed._feeToken, usdc) ? "usdc" : token,
+      amount: (owed?._amount as bigint | undefined) ?? feesForJurors,
+      claimed: claimed ? { tx: claimed.transactionHash, beneficiary: claimed.args._beneficiary as Address } : null,
+    };
+    const pending = await foreign.readContract({
+      address: gateway,
+      abi: foreignGatewayAbi,
+      functionName: "pendingRefunds",
+      args: [disputeId],
+    });
+    facts.refundPending = pending !== ZERO_HASH;
+    return { facts, handles };
   }
 
   async function request(disputeId: bigint): Promise<SwitchRequest | null> {
     try {
-      const facts = await factsFor(disputeId);
-      if (!facts) return null;
+      const read = await readRequest(disputeId);
+      if (!read) return null;
       const ctx = await errorContext();
-      return buildRequest(facts, ctx.oracleName);
+      return buildRequest(read.facts, ctx.oracleName);
     } catch (error) {
       return fail(error);
     }
   }
 
-  async function connectedAccount(): Promise<Address> {
+  /** The contract call behind one action, on the chain it runs on. */
+  function actionCall(action: RequestAction, disputeId: bigint, handles: Handles, yaru: { foreign: Address; home: Address }) {
+    const missing = (what: string): never => {
+      throw new SwitchError(`${CANCELLED_BEFORE_SENDING} This step is not due: ${what} cannot be found on the chain.`);
+    };
+    switch (action) {
+      case "deliver":
+        return {
+          chain: "home" as const,
+          address: yaru.home,
+          abi: yaruAbi,
+          functionName: "executeMessages",
+          args: [[handles.disputeLeg ?? missing("the request's message")]],
+        };
+      case "create-dispute":
+        return {
+          chain: "home" as const,
+          address: ha.HomeGateway,
+          abi: homeGatewayAbi,
+          functionName: "createReceivedDispute",
+          args: [handles.disputeMessage ?? missing("the delivered dispute")],
+        };
+      case "send-failure":
+        return {
+          chain: "home" as const,
+          address: ha.HomeGateway,
+          abi: homeGatewayAbi,
+          functionName: "sendCreationFailure",
+          args: [handles.disputeHash ?? missing("the dispute")],
+        };
+      case "deliver-back":
+        return {
+          chain: "foreign" as const,
+          address: yaru.foreign,
+          abi: yaruAbi,
+          functionName: "executeMessages",
+          args: [[handles.returnLeg ?? missing("the returning message")]],
+        };
+      case "execute-ruling":
+        return { chain: "foreign" as const, address: gateway, abi: foreignGatewayAbi, functionName: "executeRuling", args: [disputeId] };
+      case "claim-refund":
+        return { chain: "foreign" as const, address: lightbulb, abi: lightbulbAbi, functionName: "claimRefund", args: [disputeId] };
+    }
+  }
+
+  async function act(disputeId: bigint, action: RequestAction): Promise<Hex> {
+    let sent = false;
+    try {
+      const read = await readRequest(disputeId);
+      if (!read) throw new SwitchError(`${CANCELLED_BEFORE_SENDING} Request #${disputeId} does not exist.`);
+      const current = buildRequest(read.facts);
+      if (!current.actions.includes(action)) {
+        throw new SwitchError(`${CANCELLED_BEFORE_SENDING} This step is no longer due: refresh the status.`);
+      }
+      const { chain, ...call } = actionCall(action, disputeId, read.handles, await yarus());
+      const account = await connectedAccount(chain);
+      await clients[chain].simulateContract({ ...call, abi: [...call.abi, ...allErrorsAbi], account } as never);
+      const hash = await writeContract(config, { ...call, chainId: env[chain].chainId } as never);
+      sent = true;
+      const receipt = await clients[chain].waitForTransactionReceipt({ hash });
+      if (receipt.status !== "success") throw new SwitchError(`${MINED_REVERT}\nThe transaction ${hash} reverted.`);
+      return hash;
+    } catch (error) {
+      return fail(error, !sent);
+    }
+  }
+
+  /** The connected wallet, switched to the chain the next transaction runs on. */
+  async function connectedAccount(chain: "foreign" | "home" = "foreign"): Promise<Address> {
     const account = getAccount(config);
     if (account.status !== "connected" || !account.address) throw new SwitchError(`${CANCELLED_BEFORE_SENDING} Connect a wallet first.`);
-    if (account.chainId !== env.foreign.chainId) {
-      await switchChain(config, { chainId: env.foreign.chainId });
+    if (account.chainId !== env[chain].chainId) {
+      await switchChain(config, { chainId: env[chain].chainId });
     }
     return account.address;
   }
@@ -530,8 +737,13 @@ export function createChainSwitchData(env: ParsedDevnetEnv, config: Config): Swi
       }
       const requested = parseEventLogs({ abi: lightbulbAbi, logs: receipt.logs, eventName: "LightbulbRequested" })[0];
       if (!requested) throw new SwitchError("The request was mined but the Lightbulb emitted no LightbulbRequested event.");
-      const built = await request(requested.args._disputeID);
-      if (!built) throw new SwitchError("The request was mined but cannot be read back from the devnet.");
+      // A public RPC may route the read to a node behind the one that returned the receipt: retry briefly.
+      let built = await request(requested.args._disputeID);
+      for (let attempt = 0; !built && attempt < READ_BACK_ATTEMPTS; attempt++) {
+        await new Promise((resolve) => setTimeout(resolve, pollingInterval));
+        built = await request(requested.args._disputeID);
+      }
+      if (!built) throw new SwitchError("The request was mined but cannot be read back from the chain.");
       return projectTo(built, "submitted");
     } catch (error) {
       return fail(error, !sent);
@@ -539,13 +751,12 @@ export function createChainSwitchData(env: ParsedDevnetEnv, config: Config): Swi
   }
 
   async function requests(owner: Address): Promise<SwitchRequest[]> {
-    const logs = await foreign.getContractEvents({
+    const logs = await getContractEventsPaged(foreign, {
       address: lightbulb,
       abi: lightbulbAbi,
       eventName: "LightbulbRequested",
       args: { _owner: owner },
-      fromBlock: 0n,
-    });
+    }, { fromBlock: env.foreign.fromBlock });
     const ids = logs.map((l) => l.args._disputeID as bigint).sort((a, b) => (a > b ? -1 : a < b ? 1 : 0));
     const out: SwitchRequest[] = [];
     for (const id of ids) {
@@ -569,12 +780,12 @@ export function createChainSwitchData(env: ParsedDevnetEnv, config: Config): Swi
             onChange(step);
           }
           previous = next;
-          if (next.stage === "switched") return; // final
+          if (isFinal(next)) return;
         }
       } catch {
-        // The devnet may be restarting; try again on the next tick.
+        // The chain may be restarting or the RPC busy; try again on the next tick.
       }
-      if (!stopped) timer = setTimeout(tick, WATCH_INTERVAL_MS);
+      if (!stopped) timer = setTimeout(tick, watchInterval);
     };
     void tick();
     return () => {
@@ -620,6 +831,7 @@ export function createChainSwitchData(env: ParsedDevnetEnv, config: Config): Swi
     request,
     requests: (owner) => requests(owner).catch(fail),
     watchRequest,
+    act,
     devnet: env.testWallet ? { rule } : undefined,
   };
 }

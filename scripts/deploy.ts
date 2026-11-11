@@ -17,6 +17,7 @@ import {
 import { isLocalRpcUrl } from "../src/data/env";
 import {
   COURT,
+  CREATION_TIMEOUT_SECONDS,
   DEFAULT_SELECTION,
   DEV_ACCOUNT,
   FOREIGN_CHAIN_ID,
@@ -169,6 +170,8 @@ async function main() {
   await foreign.call("ForeignGateway", foreignGateway, "changeAcceptedFeeTokens", [usdc, true]);
   await foreign.call("ForeignGateway", foreignGateway, "changeCurrencyRates", [usdc, USDC_RATE_IN_ETH, USDC_RATE_DECIMALS]);
   await home.call("KlerosCoreRuler", ruler, "changeRulingModeToManual", [homeGateway]);
+  const creationTimeout = BigInt(process.env.VEASHI_CREATION_TIMEOUT || CREATION_TIMEOUT_SECONDS);
+  await home.call("HomeGateway", homeGateway, "changeCreationTimeout", [creationTimeout]);
   await home.send(homeGateway, HOME_GATEWAY_FUNDING);
   for (const r of homeReporters) await home.send(r, REPORTER_FUNDING);
   for (const r of foreignReporters) await foreign.send(r, REPORTER_FUNDING);
