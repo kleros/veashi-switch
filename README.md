@@ -63,6 +63,22 @@ yarn devnet:smoke && yarn test:e2e
 
 A changed contract ABI also needs `src/data/abi.ts` updated. If `feat/integrate-veashi` is rebased or deleted, the pinned commit can disappear from GitHub: repoint the submodule to the commit that replaced it.
 
+## Deploying to Netlify (testnets)
+
+The same app builds as a static site that talks to public testnets: Base Sepolia (foreign chain) and Arbitrum Sepolia (home chain). The build is selected by `VITE_VEASHI_NETWORK=testnet`, which `netlify.toml` sets; without it the app loads `/devnet.json` as before. There is no fake mode and no test wallet in a testnet build: only the injected (browser) wallet.
+
+Settings live in `config/testnet.json`, bundled at build time: for each chain the id (only Base Sepolia, Arbitrum Sepolia and Sepolia are accepted), RPC URL (https), block explorer URL, `fromBlock` (the deployment block, where event scans start), and the contract addresses. `Yaho` and `Yaru` are filled in from `@kleros/veashi-sdk`; the oracles' reporters and adapters are read from the ForeignGateway. `ForeignGateway`, `GatewayLightbulb`, `USDC`, `HomeGateway` and `KlerosCoreRuler` are empty until the contracts are deployed; while any of them is empty the site shows a "Not connected to contracts yet" page. To go live, set those addresses and the `fromBlock` values, commit, and let Netlify rebuild.
+
+Optional build variables: `VITE_VEASHI_FOREIGN_RPC` and `VITE_VEASHI_HOME_RPC` replace the RPC URLs (still https only), for example with a provider key's URL; note that anything in a `VITE_` variable ends up in the public bundle.
+
+What Netlify relies on:
+
+- `package.json` has `"packageManager": "yarn@4.9.2"` and a `yarn.lock` is committed, so Netlify installs Yarn and runs `yarn install`; `.yarnrc.yml` sets `nodeLinker: node-modules` (required on Netlify) and `yarnPath` to the committed release.
+- `netlify.toml` sets the build command (`yarn build`), publish directory (`dist`), Node 22, and a `/*` to `/index.html` rewrite (status 200) so that `/track/<id>` works on reload. `public/_headers` adds basic security headers, without a CSP that could block wallet extensions.
+- The `contracts/lib/kleros-v2` submodule is only for the local devnet's contracts; the web build does not read it. Check a build without submodules with `git clone <repo> && cd <repo> && yarn install --immutable && VITE_VEASHI_NETWORK=testnet yarn build`.
+
+Local check of a testnet build: `VITE_VEASHI_NETWORK=testnet yarn build && yarn preview`.
+
 ## Origin
 
 This app was first developed inside the [kleros-v2](https://github.com/kleros/kleros-v2) monorepo, on a branch that was not published, and moved to its own repository on 2026-10-15 with its history. The Kleros v2 contracts its devnet deploys come from the kleros-v2 submodule.

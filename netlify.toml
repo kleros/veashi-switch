@@ -1,0 +1,14 @@
+# Static deploy against the public testnets (see "Deploying to Netlify (testnets)" in the README).
+[build]
+  command = "yarn build"
+  publish = "dist"
+
+[build.environment]
+  NODE_VERSION = "22"
+  VITE_VEASHI_NETWORK = "testnet"
+
+# react-router uses real paths (/track/:id): every path that is not a file serves the app.
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200

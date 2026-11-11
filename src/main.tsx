@@ -3,10 +3,11 @@ import { createRoot } from "react-dom/client";
 import { App, type Boot } from "./App";
 import type { AppSetup } from "./components/setup";
 import { plainError } from "./components/errors";
-import { createSwitchData, createWagmiConfig, loadDevnetEnv } from "./data";
+import { createSwitchData, createWagmiConfig, loadEnv } from "./data";
+import { NotConfiguredError } from "./data/env";
 
-async function devnetSetup(): Promise<AppSetup> {
-  const env = await loadDevnetEnv();
+async function networkSetup(): Promise<AppSetup> {
+  const env = await loadEnv();
   const config = createWagmiConfig(env);
   return { env, config, data: createSwitchData(env, config) };
 }
@@ -19,8 +20,10 @@ async function boot(): Promise<Boot> {
       const { fakeSetup } = await import("./components/dev/fakeSetup");
       return { setup: fakeSetup() };
     }
-    return { setup: await devnetSetup() };
+    return { setup: await networkSetup() };
   } catch (e) {
+    // Already plain language, and the boot screen recognises its prefix.
+    if (e instanceof NotConfiguredError) return { error: e.message };
     return { error: plainError(e) };
   }
 }
