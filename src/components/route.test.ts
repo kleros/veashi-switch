@@ -6,6 +6,7 @@ import { listState, quoteMatches, routeConfig, walletGate } from "./route";
 
 const info = (key: "foreign" | "home", id: number, name: string): ChainInfo => ({
   key,
+  network: "devnet",
   id,
   name,
   rpcUrl: "http://127.0.0.1:8645",
@@ -18,6 +19,16 @@ describe("route", () => {
     expect(route.pill).toBe("Local · Base-like → Arbitrum-like");
     expect(route.fromLabel).toBe("Base-like local devnet");
     expect(route.toLabel).toBe("Arbitrum-like local devnet");
+    expect(route).toMatchObject({ testnet: false, networkLabel: "Local devnet" });
+  });
+  it("names the public testnets without the local devnet", () => {
+    const t = routeConfig({
+      foreign: { ...info("foreign", 84532, "Base Sepolia"), network: "testnet" },
+      home: { ...info("home", 421614, "Arbitrum Sepolia"), network: "testnet" },
+    });
+    expect(t).toMatchObject({ testnet: true, networkLabel: "Public testnet", fromLabel: "Base Sepolia", toLabel: "Arbitrum Sepolia" });
+    expect(t.pill).toBe("Testnet · Base Sepolia → Arbitrum Sepolia");
+    expect(walletGate({ networkUp: false, status: "connected", chainId: 84532, route: t }).message).toBe("Network unavailable");
   });
 });
 

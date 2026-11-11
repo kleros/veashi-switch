@@ -57,7 +57,7 @@ export async function goToStep(page: Page, n: 1 | 2 | 3) {
   await expect(count).toHaveText(`Step ${n} of 3`);
 }
 
-/** Track's Progress shows the six-stage timeline (log-*, report-*). Does nothing where there is no switch. */
+/** Track's Progress shows the seven-stage timeline (log-*, report-*). Does nothing where there is no switch. */
 export async function showSteps(page: Page) {
   const btn = page.getByTestId("toggle-steps");
   if ((await btn.count()) === 0) return;

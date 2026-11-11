@@ -6,6 +6,7 @@ import type { ChainNames, CircuitModel, LegModel, NodeKey, NodeState } from "./c
 import { shortHash } from "./format";
 import { txName } from "./trackModel";
 import { Icon, IconButton } from "./ui";
+import { useExplorer } from "./setup";
 import { useCopy } from "./Toast";
 import { oracleColor } from "../theme/tokens";
 
@@ -216,13 +217,14 @@ const StatusDot: React.FC<{ x: number; y: number; state: NodeState }> = ({ x, y,
 
 const TxText: React.FC<{ x: number; y: number; tx: StageTx; nodeKey: NodeKey }> = ({ x, y, tx, nodeKey }) => {
   const copy = useCopy();
-  const go = () => copy(tx.hash, "Transaction hash copied");
+  const explorer = useExplorer(tx.chain);
+  const go = () => (explorer ? window.open(explorer(tx.hash), "_blank", "noreferrer") : copy(tx.hash, "Transaction hash copied"));
   return (
     <g
       className="t-tx"
       role="button"
       tabIndex={0}
-      aria-label={`${txName(tx)} transaction ${tx.hash}, copy`}
+      aria-label={`${txName(tx)} transaction ${tx.hash}, ${explorer ? "open in the block explorer" : "copy"}`}
       data-testid={`node-tx-${nodeKey}`}
       data-hash={tx.hash}
       onClick={go}
@@ -233,7 +235,7 @@ const TxText: React.FC<{ x: number; y: number; tx: StageTx; nodeKey: NodeKey }> 
         }
       }}
     >
-      <title>{`${txName(tx)}: ${tx.hash} (click to copy; the local network has no explorer)`}</title>
+      <title>{`${txName(tx)}: ${tx.hash} (${explorer ? "click to open in the block explorer" : "click to copy; the local network has no explorer"})`}</title>
       <rect x={x - 4} y={y - 15} width={130} height={22} rx={3} fill="transparent" stroke="none" />
       <text x={x} y={y}>{`tx ${shortHash(tx.hash)}`}</text>
     </g>

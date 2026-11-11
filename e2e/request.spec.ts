@@ -144,7 +144,7 @@ test("[scenario:request-send-on] default selection paid in ETH, followed on Trac
   await expect(tech).toContainText("ForeignGateway");
   await expect(tech).toContainText("oracle id");
   await expect(tech.getByTestId("tech-tx")).not.toHaveCount(0);
-  for (const stage of ["submitted", "dispute-received", "ruled", "switched"])
+  for (const stage of ["submitted", "dispute-delivered", "dispute-received", "ruled", "switched"])
     await expect(tech.locator(`[data-testid="tech-tx"][data-stage="${stage}"]`).first()).toHaveAttribute(
       "data-hash",
       /^0x[0-9a-fA-F]{64}$/,

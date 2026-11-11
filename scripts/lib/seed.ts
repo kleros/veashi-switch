@@ -30,4 +30,8 @@ export const USDC_RATE_IN_ETH = (10n ** 12n * 10n ** 6n) / USDC_PER_ETH;
 export const USDC_MINT = 10_000n * 10n ** 6n;
 
 export const HOME_GATEWAY_FUNDING = parseEther("10");
+
+// HomeGateway.creationTimeout on the devnet (the contract's default is 7 days): how long after its delivery a dispute
+// the court has not opened can be closed with sendCreationFailure. VEASHI_CREATION_TIMEOUT (seconds) overrides it.
+export const CREATION_TIMEOUT_SECONDS = 60;
 export const REPORTER_FUNDING = parseEther("1");

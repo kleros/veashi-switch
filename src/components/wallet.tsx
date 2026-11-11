@@ -63,12 +63,15 @@ function useWalletState(): Wallet {
     connectTest: () => run(() => connectAsync({ connector: test!, chainId: foreignId })),
     connectInjected: () =>
       run(async () => {
-        if (!injected) throw new Error("No browser wallet found. Install one, or use the test wallet on the local demo.");
+        const noWallet = test
+          ? "No browser wallet found. Install one, or use the test wallet on the local demo."
+          : "No browser wallet found. Install one to send a request.";
+        if (!injected) throw new Error(noWallet);
         try {
           await connectAsync({ connector: injected, chainId: foreignId });
         } catch (e) {
           if (/provider not found/i.test(e instanceof Error ? e.message : String(e)))
-            throw new Error("No browser wallet found. Install one, or use the test wallet on the local demo.");
+            throw new Error(noWallet);
           throw e;
         }
       }),
@@ -245,7 +248,7 @@ export const AccountControl: React.FC = () => {
       <summary aria-label="Account and network">
         <span>{w.isTest ? "Test wallet" : "Wallet"}</span>
         <span className="mono">{shortAddress(w.address)}</span>
-        <span className={wrong ? "bad" : undefined}>{wrong ? "Wrong network" : "Local"}</span>
+        <span className={wrong ? "bad" : undefined}>{wrong ? "Wrong network" : route.testnet ? "Testnet" : "Local"}</span>
       </summary>
       <div className="panel">
         <span>{wrong ? `Switch to ${route.fromLabel} to send.` : `On ${route.fromLabel}`}</span>
