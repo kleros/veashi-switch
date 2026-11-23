@@ -56,6 +56,8 @@ test("Track keeps the bulb neutral until the current-state read resolves, and of
     const id = await sendAndConfirm(page);
     await page.getByRole("link", { name: "Track request" }).click();
     await expect(page.getByRole("button", { name: "Decide On" })).toBeVisible({ timeout: 30_000 });
+    // the local demo has no jurors: no line for them beside Decide On / Decide Off
+    await expect(page.getByTestId("juror-line")).toHaveCount(0);
     await page.getByRole("button", { name: "Decide On" }).click();
     await expect(page.getByTestId("track-stage")).toHaveAttribute("data-stage", "switched", { timeout: 60_000 });
     if (failed) {

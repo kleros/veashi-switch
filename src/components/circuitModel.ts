@@ -53,6 +53,9 @@ export const FAILURE_NODE_TITLES: Record<NodeKey, string> = {
   foreignIn: "Request closed",
 };
 
+/** A request the court refused to arbitrate: the decision comes back and is applied, but the bulb does not change. */
+export const REFUSED_NODE_TITLES: Record<NodeKey, string> = { ...NODE_TITLES, foreignIn: "Decision applied" };
+
 /** The Request preview draws the route before anything happened: its nodes name actions, not events. */
 export const PREVIEW_NODE_TITLES: Record<NodeKey, string> = {
   foreignOut: "Send request",
@@ -236,7 +239,7 @@ export function requestModel(
     dispute,
     ruling,
     nodes,
-    titles: failurePath ? FAILURE_NODE_TITLES : NODE_TITLES,
+    titles: failurePath ? FAILURE_NODE_TITLES : decision === "refused" ? REFUSED_NODE_TITLES : NODE_TITLES,
     sub,
     tx,
     bulb,

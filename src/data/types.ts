@@ -119,7 +119,7 @@ export interface SwitchRequest {
   selection: OracleSelection; // the effective oracles and threshold (the default resolved)
   paid: { token: PayToken; amount: bigint };
   stage: RequestStage;
-  ruling: 0 | 1 | 2; // 0 = none yet, 1 = on, 2 = off
+  ruling: 0 | 1 | 2; // 0 = none yet, or the court refused to arbitrate (the stage tells them apart: decisionOf); 1 = on, 2 = off
   reports: OracleReport[];
   txs: StageTx[];
   error: string | null; // a plain-language reason when stage = "failed"

@@ -186,7 +186,9 @@ export async function trackUntilCourt(page: Page, id: string) {
   await expect(page.getByTestId("toggle-circuit")).toBeVisible();
   await showCircuit(page);
   await expect(page.getByTestId("node-tx-homeIn")).toHaveAttribute("data-hash", /^0x[0-9a-fA-F]{64}$/);
-  await expect(page.getByTestId("bulb")).toHaveAttribute("data-state", "waiting");
+  // the circuit's bulb waits for the decision; the status card draws the requester's bulb as it is now (read, not inferred)
+  await expect(page.getByTestId("circuit-bulb")).toHaveAttribute("data-state", "waiting");
+  await expect(page.getByTestId("bulb")).toHaveAttribute("data-state", /^(on|off)$/);
   return k;
 }
 

@@ -1,11 +1,11 @@
 // /case/<number>: a Kleros court case number, as jurors know it, resolved to the request that opened it; the page then
 // hands over to that request's Track page. /case alone asks for the number.
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { Navigate, useParams } from "react-router-dom";
 import styled from "styled-components";
 import { OpenById, Picker } from "../components/FindById";
 import { Loader } from "../components/Loader";
-import { lookupCase, type CaseLookup } from "../components/readState";
+import { lookupCase, parseCaseNumber, type CaseLookup } from "../components/readState";
 import { routeConfig } from "../components/route";
 import { useSetup } from "../components/setup";
 import { Callout, LibButton, PageHead, Panel, Shell } from "../components/ui";
@@ -23,6 +23,7 @@ const Resolve: React.FC<{ caseId: bigint }> = ({ caseId }) => {
   const home = routeConfig(data.chains()).to.name;
   const [lookup, setLookup] = useState<CaseLookup>({ kind: "loading" });
   const [attempt, setAttempt] = useState(0);
+  const title = useRef<HTMLHeadingElement>(null);
   useEffect(() => {
     let live = true;
     setLookup({ kind: "loading" });
@@ -31,6 +32,11 @@ const Resolve: React.FC<{ caseId: bigint }> = ({ caseId }) => {
       live = false;
     };
   }, [data, caseId, attempt]);
+  // The loader's status goes away with the answer: move focus to the new title so a screen reader says it (a failed
+  // read is an alert of its own).
+  useEffect(() => {
+    if (lookup.kind === "missing") title.current?.focus();
+  }, [lookup.kind]);
 
   const id = caseId.toString();
   if (lookup.kind === "found") return <Navigate to={`/track/${lookup.requestId.toString()}`} replace />;
@@ -38,7 +44,9 @@ const Resolve: React.FC<{ caseId: bigint }> = ({ caseId }) => {
     <Shell>
       <PageHead>
         <div>
-          <h1 data-testid="case-title">{lookup.kind === "missing" ? `No request for court case #${id}` : `Court case #${id}`}</h1>
+          <h1 data-testid="case-title" ref={title} tabIndex={-1}>
+            {lookup.kind === "missing" ? `No request for court case #${id}` : `Court case #${id}`}
+          </h1>
           <p>Kleros Court on {home}.</p>
         </div>
       </PageHead>
@@ -62,7 +70,7 @@ const Resolve: React.FC<{ caseId: bigint }> = ({ caseId }) => {
         </Callout>
       ) : (
         <Panel data-testid="case-missing">
-          <p className="sub">
+          <p className="sub" style={{ overflowWrap: "anywhere" }}>
             Court case #{id} was not opened by a lightbulb request on this site. Check the number Kleros Court shows, or
             look the request up by its own number.
           </p>
@@ -79,7 +87,9 @@ const Resolve: React.FC<{ caseId: bigint }> = ({ caseId }) => {
 
 export const CasePage: React.FC = () => {
   const { caseId } = useParams();
-  if (caseId !== undefined && /^\d+$/.test(caseId)) return <Resolve key={caseId} caseId={BigInt(caseId)} />;
+  // whole digits within uint256 (the court's dispute IDs); anything else is not a court case number
+  const parsed = caseId !== undefined ? parseCaseNumber(caseId) : null;
+  if (parsed !== null) return <Resolve key={caseId} caseId={parsed} />;
   const given = caseId !== undefined && caseId !== "";
   return (
     <Shell>

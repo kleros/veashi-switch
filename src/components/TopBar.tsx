@@ -226,7 +226,10 @@ export const TopBar: React.FC<{ account?: React.ReactNode }> = ({ account }) => 
           <NavLink to="/" end>
             Request
           </NavLink>
-          <NavLink to="/track">Track</NavLink>
+          {/* /case/<number> finds a request for Track, so Track is the current page there too */}
+          <Link to="/track" aria-current={/^\/(track|case)(\/|$)/.test(loc.pathname) ? "page" : undefined}>
+            Track
+          </Link>
         </Tabs>
       </In>
       <HelpDialog open={help} onClose={closeHelp} names={names} />

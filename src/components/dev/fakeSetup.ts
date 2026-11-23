@@ -29,6 +29,10 @@ const CREATION_FAIL = QS.get("creation") === "fail"; // the court cannot open th
 const WINDOW_MS = Number(QS.get("window") ?? 4000); // the creation window, from the delivery
 const BULB_DELAY = Number(QS.get("bulbDelay") ?? 0); // ms the bulb read takes
 const BULB_FAIL = QS.get("bulbFail") === "1"; // the bulb read is rejected
+const JURORS = QS.get("jurors") === "1"; // no local decision (as on a testnet): a request stays in court, as jurors see it
+// a finished request the court refused to arbitrate (ruling 0), as request #90 / court case #90 of the test wallet
+const REFUSED = QS.get("refused") === "1";
+const REFUSED_ID = 90n;
 // e2e switches: `window.__veashi = { outage: true }` makes request() reject, `{ quoteFail: true }` makes quote() reject
 const sw = (): { outage?: boolean; quoteFail?: boolean } =>
   ((window as unknown as { __veashi?: { outage?: boolean; quoteFail?: boolean } }).__veashi ?? {});
@@ -106,13 +110,40 @@ export function fakeSetup(): AppSetup {
     hash: hash(),
   });
 
+  const finishedReports = (["dispute", "ruling"] as const).flatMap((leg) =>
+    DEFAULT.oracleIds.slice(0, DEFAULT.threshold).map((o) => ({ oracleId: o, leg, status: "reported" as const })),
+  );
+  const finishedTxs = () => [
+    tx("submitted", "foreign", "requestSwitch"),
+    tx("dispute-delivered", "home", "executeMessages"),
+    tx("dispute-received", "home", "createReceivedDispute"),
+    tx("ruled", "home", "executeRuling"),
+    tx("ruling-relaying", "foreign", "executeMessages"),
+    tx("switched", "foreign", "executeRuling"),
+  ];
+  // ?refused=1: a request ruled 0, with IDs outside the ones handed out below (so they do not move); the bulb is untouched.
+  if (REFUSED)
+    requests.set(REFUSED_ID, {
+      disputeId: REFUSED_ID,
+      homeDisputeId: REFUSED_ID,
+      owner: DEV,
+      selection: DEFAULT,
+      paid: { token: "native", amount: JUROR_FEES + DEFAULT.oracleIds.reduce((t, o) => t + ORACLES[o].bridgingCostWei, 0n) },
+      stage: "switched",
+      ruling: 0,
+      reports: finishedReports,
+      txs: finishedTxs(),
+      error: null,
+      creation: { state: "created", deliveredAt: Date.now() - 60_000, failableAt: Date.now() + 60_000, blocker: null },
+      refund: null,
+      actions: [],
+      updatedAt: Date.now(),
+    });
+
   // Two finished requests owned by the test wallet, one ruled On and one Off, so Track can be seen without a wait.
   for (const ruling of [1, 2] as const) {
     const id = nextId++;
     const hid = nextHome++;
-    const reports = (["dispute", "ruling"] as const).flatMap((leg) =>
-      DEFAULT.oracleIds.slice(0, DEFAULT.threshold).map((o) => ({ oracleId: o, leg, status: "reported" as const })),
-    );
     requests.set(id, {
       disputeId: id,
       homeDisputeId: hid,
@@ -121,15 +152,8 @@ export function fakeSetup(): AppSetup {
       paid: { token: "native", amount: JUROR_FEES + DEFAULT.oracleIds.reduce((t, o) => t + ORACLES[o].bridgingCostWei, 0n) },
       stage: "switched",
       ruling,
-      reports,
-      txs: [
-        tx("submitted", "foreign", "requestSwitch"),
-        tx("dispute-delivered", "home", "executeMessages"),
-        tx("dispute-received", "home", "createReceivedDispute"),
-        tx("ruled", "home", "executeRuling"),
-        tx("ruling-relaying", "foreign", "executeMessages"),
-        tx("switched", "foreign", "executeRuling"),
-      ],
+      reports: finishedReports,
+      txs: finishedTxs(),
       error: null,
       creation: { state: "created", deliveredAt: Date.now() - 60_000, failableAt: Date.now() + 60_000, blocker: null },
       refund: null,
@@ -328,27 +352,30 @@ export function fakeSetup(): AppSetup {
       }
       throw new Error(`The fake setup does not run ${action}: the relay service does it.`);
     },
-    devnet: {
-      async rule(id, ruling) {
-        const r = requests.get(id);
-        if (!r || r.stage !== "dispute-received") throw new Error("This dispute is not waiting for a ruling.");
-        await sleep(600);
-        const t = tx("ruled", "home", "executeRuling");
-        update(id, (x) => ({ ...x, stage: "ruled", ruling, txs: [...x.txs, t] }));
-        void (async () => {
-          await sleep(STEP_MS / 2);
-          update(id, (x) => ({ ...x, txs: [...x.txs, { ...t, stage: "ruling-relaying", label: "rule → dispatch" }] }));
-          await relay(id, "ruling");
-          update(id, (x) => ({
-            ...x,
-            stage: "switched",
-            txs: [...x.txs, tx("ruling-relaying", "foreign", "executeMessages"), tx("switched", "foreign", "executeRuling")],
-          }));
-          bulbs.set(r.owner.toLowerCase(), ruling === 1);
-        })();
-        return t.hash;
-      },
-    },
+    // ?jurors=1: no local decision, as on a testnet (the Track page then shows the jurors' view while in court)
+    devnet: JURORS
+      ? undefined
+      : {
+          async rule(id, ruling) {
+            const r = requests.get(id);
+            if (!r || r.stage !== "dispute-received") throw new Error("This dispute is not waiting for a ruling.");
+            await sleep(600);
+            const t = tx("ruled", "home", "executeRuling");
+            update(id, (x) => ({ ...x, stage: "ruled", ruling, txs: [...x.txs, t] }));
+            void (async () => {
+              await sleep(STEP_MS / 2);
+              update(id, (x) => ({ ...x, txs: [...x.txs, { ...t, stage: "ruling-relaying", label: "rule → dispatch" }] }));
+              await relay(id, "ruling");
+              update(id, (x) => ({
+                ...x,
+                stage: "switched",
+                txs: [...x.txs, tx("ruling-relaying", "foreign", "executeMessages"), tx("switched", "foreign", "executeRuling")],
+              }));
+              bulbs.set(r.owner.toLowerCase(), ruling === 1);
+            })();
+            return t.hash;
+          },
+        },
   };
   return { env, config, data };
 }

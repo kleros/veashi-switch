@@ -86,6 +86,7 @@ const variants = (blocker = BLOCKER): SwitchRequest[] => {
     req("ruled", { ruling: 0 }),
     req("ruling-relaying", { ruling: 0, actions: ["execute-ruling"] }),
     req("switched", { ruling: 0 }),
+    req("ruling-relaying", { ruling: 0, actions: ["deliver-back"] }),
   ];
 };
 
@@ -107,7 +108,7 @@ const allText = (): string[] => {
       for (const e of logEntries(r, oracles, n)) out.push(e.title, e.word ?? "");
       for (const a of actionModels(r, n, { selfServe: true, amount: (v) => `${v} wei` })) out.push(a.label, a.note);
       const m = requestModel(r, oracles, n, { kind: "known", on: true });
-      out.push(...m.bulbLabel, m.dispute.caption, m.ruling.caption, ...Object.values(m.sub));
+      out.push(...m.bulbLabel, m.dispute.caption, m.ruling.caption, ...Object.values(m.sub), ...Object.values(m.titles));
       for (const t of r.txs) out.push(txName(t));
       if (r.stage === "failed") {
         const p = pausedModel(r, n);
