@@ -62,13 +62,18 @@ const ruled = tx("ruled", "home", 3);
 const switched = tx("switched", "foreign", 4);
 const creationFailed = tx("creation-failed", "home", 5);
 const closed = tx("closed", "foreign", 6);
+const delivered = tx("dispute-delivered", "home", 7);
+const dOk = rep("dispute", "reported", 0, 1);
 
 /** Every state the circuit draws: the preview (idle), each stage in progress, done, paused and the creation failure. */
 const CASES: [string, CircuitModel][] = [
   ["preview, idle", previewModel(four, [0, 1, 2], 2, { kind: "known", on: false }, names)],
   ["preview, one oracle", previewModel(three, [1], 1, { kind: "loading" }, names)],
+  ["preview, no oracle chosen", previewModel(four, [], 1, { kind: "loading" }, names)],
   ["sent, request leg live", requestModel(req("submitted"), four, names)],
   ["request leg, 1 of 2", requestModel(req("dispute-relaying", { reports: [...rep("dispute", "pending", 0, 1), ...rep("dispute", "reported", 2)] }), four, names)],
+  ["request leg, 2 of 2: Delivered next", requestModel(req("dispute-relaying", { reports: dOk }), four, names)],
+  ["delivered, the court opening the case", requestModel(req("dispute-delivered", { txs: [sent, delivered], reports: dOk }), four, names)],
   ["court open", requestModel(req("dispute-received", { homeDisputeId: 0n, txs: [sent, received] }), four, names)],
   ["court ruled", requestModel(req("ruled", { homeDisputeId: 0n, ruling: 1, txs: [sent, received, ruled] }), four, names)],
   [
@@ -78,6 +83,18 @@ const CASES: [string, CircuitModel][] = [
       four,
       names,
     ),
+  ],
+  [
+    "decision leg, 2 of 2: Bulb updated next",
+    requestModel(
+      req("ruling-relaying", { homeDisputeId: 0n, ruling: 1, txs: [sent, received, ruled], reports: [...dOk, ...rep("ruling", "reported", 0, 1)] }),
+      four,
+      names,
+    ),
+  ],
+  [
+    "done, ruling refused",
+    requestModel(req("switched", { homeDisputeId: 0n, ruling: 0, txs: [sent, received, ruled, switched], reports: dOk }), four, names, { kind: "known", on: false }),
   ],
   [
     "done (testnet oracles)",
@@ -90,9 +107,23 @@ const CASES: [string, CircuitModel][] = [
   ],
   ["paused on the request leg", requestModel(req("failed", { reports: [...rep("dispute", "reported", 2), ...rep("dispute", "failed", 1)] }), four, names)],
   ["paused at delivery", requestModel(req("failed", { error: "short", reports: rep("dispute", "reported", 0, 1) }), four, names)],
+  ["paused on the decision leg", requestModel(req("failed", { homeDisputeId: 0n, ruling: 1, txs: [sent, received, ruled], reports: dOk }), four, names)],
+  [
+    "paused updating the bulb",
+    requestModel(req("failed", { homeDisputeId: 0n, ruling: 1, txs: [sent, received, ruled], reports: [...dOk, ...rep("ruling", "reported", 0, 1)] }), four, names),
+  ],
   [
     "court cannot open the case",
     requestModel(req("dispute-delivered", { actions: ["send-failure"], txs: [sent, tx("dispute-delivered", "home", 7)], creation: { state: "waiting", deliveredAt: 0, failableAt: 1, blocker: "short" } }), four, names),
+  ],
+  ["failure sent", requestModel(req("creation-failed", { txs: [sent, delivered, creationFailed], reports: dOk }), four, names)],
+  [
+    "failure returning",
+    requestModel(req("failure-relaying", { txs: [sent, delivered, creationFailed], reports: [...dOk, ...rep("ruling", "pending", 0, 1, 2)] }), four, names),
+  ],
+  [
+    "paused returning the failure",
+    requestModel(req("failed", { txs: [sent, delivered, creationFailed], reports: [...dOk, ...rep("ruling", "reported", 0, 1)] }), four, names),
   ],
   [
     "failure returned, request closed",
@@ -299,19 +330,49 @@ describe("circuitConnectors", () => {
     });
   }
 
-  it("colours each wire's arrow by the wire's state: all idle before sending, all done once the bulb is updated", () => {
-    const preview = circuitConnectors(CASES[0][1]);
-    expect(preview.filter((c) => c.kind === "wire").map((c) => c.kind === "wire" && c.state)).toEqual(Array(6).fill("idle"));
-    const done = circuitConnectors(CASES.find(([l]) => l.startsWith("done"))![1]);
-    expect(done.filter((c) => c.kind === "wire").map((c) => c.kind === "wire" && c.state)).toEqual(Array(6).fill("done"));
-    const live = circuitConnectors(CASES.find(([l]) => l === "court open")![1]);
-    const state = Object.fromEntries(live.map((c) => [c.id, c.kind === "wire" ? c.state : c.strand]));
-    expect(state).toMatchObject({ "bulb-request": "done", "junction-delivered": "done", "delivered-court": "done", "court-returning": "idle", "updated-bulb": "idle" });
-    const stuck = circuitConnectors(CASES.find(([l]) => l === "court cannot open the case")![1]);
-    expect(Object.fromEntries(stuck.map((c) => [c.id, c.kind === "wire" ? c.state : c.strand]))).toMatchObject({
-      "delivered-court": "active",
-      "court-returning": "fail",
-    });
+  // Each wire's state (and so its arrow's colour), in the order of travel: bulb → Request sent, junction → Delivered,
+  // Delivered → Decision, Decision → Decision returning, junction → Bulb updated, Bulb updated → bulb. Written out by
+  // hand from the node states, so a change to any wire's rule shows here.
+  const WIRE_STATES: Record<string, string> = {
+    "preview, idle": "idle idle idle idle idle idle",
+    "preview, one oracle": "idle idle idle idle idle idle",
+    "preview, no oracle chosen": "idle idle idle idle idle idle",
+    "sent, request leg live": "done idle idle idle idle idle",
+    "request leg, 1 of 2": "done idle idle idle idle idle",
+    "request leg, 2 of 2: Delivered next": "done done idle idle idle idle",
+    "delivered, the court opening the case": "done done done idle idle idle",
+    "court open": "done done done idle idle idle",
+    "court ruled": "done done done done idle idle",
+    "decision leg live": "done done done done idle idle",
+    "decision leg, 2 of 2: Bulb updated next": "done done done done done idle",
+    "done, ruling refused": "done done done done done done",
+    "done (testnet oracles)": "done done done done done done",
+    "paused on the request leg": "done idle idle idle idle idle",
+    "paused at delivery": "done fail fail idle idle idle",
+    "paused on the decision leg": "done done done done idle idle",
+    "paused updating the bulb": "done done done done fail idle",
+    // the court could not open the case: the wires on both sides of it are red, before and after the failure returns
+    "court cannot open the case": "done done fail fail idle idle",
+    "failure sent": "done done fail fail idle idle",
+    "failure returning": "done done fail fail idle idle",
+    "paused returning the failure": "done done fail fail fail idle",
+    "failure returned, request closed": "done done fail fail done done",
+  };
+
+  it("gives each wire, and so its arrow, the state of the hop it draws, in every case", () => {
+    expect(Object.keys(WIRE_STATES).sort()).toEqual(CASES.map(([l]) => l).sort());
+    for (const [label, model] of CASES) {
+      const cs = circuitConnectors(model);
+      expect(cs.filter((c) => c.kind === "wire").map((c) => c.id), label).toEqual([
+        "bulb-request",
+        "junction-delivered",
+        "delivered-court",
+        "court-returning",
+        "junction-updated",
+        "updated-bulb",
+      ]);
+      expect(cs.map((c) => (c.kind === "wire" ? c.state : "")).filter(Boolean).join(" "), label).toBe(WIRE_STATES[label]);
+    }
   });
 
   it("keeps the strands' opacities and draws a strand's arrow at no less than 0.85, so a faint strand still shows its way", () => {
@@ -329,10 +390,11 @@ describe("circuitConnectors", () => {
 
 describe("travelOrder", () => {
   it("names every stop in the order of travel, with the titles the circuit shows", () => {
-    expect(travelOrder(CASES[2][1])).toBe(
+    const model = (label: string) => CASES.find(([l]) => l === label)![1];
+    expect(travelOrder(model("sent, request leg live"))).toBe(
       "In order: the bulb, Request sent, the oracles, Delivered, Decision, Decision returning, the oracles, Bulb updated, and back to the bulb.",
     );
-    expect(travelOrder(CASES[CASES.length - 1][1])).toContain("Case not opened, Failure returning, the oracles, Request closed");
-    expect(travelOrder(CASES[0][1])).toContain("the bulb, Send request, the oracles, Court receives request");
+    expect(travelOrder(model("failure returned, request closed"))).toContain("Case not opened, Failure returning, the oracles, Request closed");
+    expect(travelOrder(model("preview, idle"))).toContain("the bulb, Send request, the oracles, Court receives request");
   });
 });

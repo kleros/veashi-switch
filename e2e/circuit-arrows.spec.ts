@@ -326,10 +326,20 @@ test("arrows on a paused delivery and on a case the court could not open, back t
   await showCircuit(page);
   await expect(page.getByTestId("node-court")).toHaveAttribute("data-state", "fail", { timeout: 60_000 });
   const stuck = await expectArrows(page, "court cannot open the case");
+  // the wires on both sides of the court that could not open the case are red, never "in progress"
+  expect(stateOf(stuck, "delivered-court")).toBe("fail");
   expect(stateOf(stuck, "court-returning")).toBe("fail");
   await page.getByTestId("act-send-failure").getByRole("button", { name: "Send the failure back" }).click();
   await showCircuit(page);
   await expect(page.getByTestId("node-foreignIn")).toHaveAttribute("data-state", "done", { timeout: 60_000 });
   await expect(page.getByTestId("circuit")).toHaveAttribute("aria-label", /Case not opened, Failure returning, the oracles, Request closed, and back/);
-  await expectArrows(page, "failure returned");
+  const returned = await expectArrows(page, "failure returned");
+  expect(["bulb-request", "junction-delivered", "delivered-court", "court-returning", "junction-updated", "updated-bulb"].map((w) => stateOf(returned, w))).toEqual([
+    "done",
+    "done",
+    "fail",
+    "fail",
+    "done",
+    "done",
+  ]);
 });

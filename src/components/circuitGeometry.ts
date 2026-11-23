@@ -126,6 +126,8 @@ const ANGLE: Record<Heading, number> = { right: 0, down: 90, left: 180, up: 270 
 export function wireBetween(a: NodeState, b: NodeState): WireState {
   if (a === "done" && (b === "done" || b === "active")) return "done";
   if (a === "fail") return "fail";
+  // into a node that failed (the court could not open the case): red, as a wire from a junction into one is
+  if (b === "fail") return "fail";
   if (a === "done") return "active";
   return "idle";
 }
