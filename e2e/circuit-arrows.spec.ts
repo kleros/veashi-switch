@@ -280,6 +280,8 @@ test("[scenario:circuit-arrows] every connector's arrow points the way the messa
   const id = await sendAndConfirm(page);
   await page.getByRole("link", { name: "Track request" }).click();
   await expect(page).toHaveURL(new RegExp(`/track/${id}$`));
+  // Track reads the request first (from the chain on the devnet): the Circuit toggle appears once it has
+  await expect(page.getByTestId("toggle-circuit")).toBeVisible();
   await showCircuit(page);
   // on the devnet the relayer may finish the leg before Track opens: either is a sent request
   await expect(page.getByTestId("leg-dispute")).toHaveAttribute("data-status", /^(live|done)$/);
@@ -322,6 +324,7 @@ test("arrows on a paused delivery and on a case the court could not open, back t
   await connectTestWallet(page);
   await sendAndConfirm(page);
   await page.getByRole("link", { name: "Track request" }).click();
+  await expect(page.getByTestId("toggle-circuit")).toBeVisible();
   await showCircuit(page);
   await expect(page.getByTestId("leg-dispute")).toHaveAttribute("data-status", "fail");
   await expectArrows(page, "paused");
@@ -331,6 +334,7 @@ test("arrows on a paused delivery and on a case the court could not open, back t
   await connectTestWallet(page);
   await sendAndConfirm(page);
   await page.getByRole("link", { name: "Track request" }).click();
+  await expect(page.getByTestId("toggle-circuit")).toBeVisible();
   await showCircuit(page);
   await expect(page.getByTestId("node-court")).toHaveAttribute("data-state", "fail", { timeout: 60_000 });
   const stuck = await expectArrows(page, "court cannot open the case");
