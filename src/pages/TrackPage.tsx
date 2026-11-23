@@ -7,6 +7,7 @@ import { isFailurePath, isFinal } from "../data/lifecycle";
 import { BulbSvg } from "../components/Bulb";
 import { Circuit } from "../components/Circuit";
 import { requestModel } from "../components/circuitModel";
+import { Loader } from "../components/Loader";
 import { plainError } from "../components/errors";
 import { clockTime, formatAmount, rulingName, shortAddress, shortHash } from "../components/format";
 import { listState } from "../components/route";
@@ -25,8 +26,10 @@ import {
   actionModels,
   DECISION_SUBMITTED,
   logEntries,
+  messageLinks,
   nowModel,
   pausedModel,
+  scannerLink,
   STAGE_LABEL,
   txName,
   type EntryState,
@@ -63,6 +66,9 @@ const Head = styled(PageHead)`
   .find {
     flex: none;
     white-space: nowrap;
+  }
+  .status-space {
+    min-height: 1.5em;
   }
   .find button {
     white-space: nowrap;
@@ -374,6 +380,19 @@ const Log = styled.ol`
     color: var(--blue);
     font-weight: 600;
   }
+  /* the leg's message in Veashi Scanner: an ordinary link, at the summaries' height and weight */
+  .scan {
+    min-height: 44px;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-weight: 600;
+  }
+  .scan svg {
+    width: 14px;
+    height: 14px;
+    flex: none;
+  }
   .reports {
     list-style: none;
     padding: 0 0 8px 4px;
@@ -461,6 +480,25 @@ const Facts = styled.dl`
     overflow-wrap: anywhere;
     font-weight: 600;
   }
+  > .links {
+    grid-column: span 2;
+  }
+  .links ul {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: grid;
+    gap: 4px;
+  }
+  .links li {
+    padding: 2px 0;
+  }
+  .links svg {
+    width: 14px;
+    height: 14px;
+    margin-left: 6px;
+    vertical-align: -2px;
+  }
   @media (max-width: 1023px) {
     grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 16px 20px;
@@ -479,6 +517,24 @@ const Strands = styled.span`
     gap: 6px;
     align-items: center;
   }
+`;
+
+/** The request's loading state, where the status card will be and about its height, so nothing jumps when it arrives. */
+const RequestLoading = styled(Panel)`
+  display: flex;
+  align-items: center;
+  min-height: 184px;
+  margin-bottom: var(--gap-card);
+  color: var(--text-2);
+  @media (max-width: 760px) {
+    min-height: 240px;
+  }
+`;
+
+/** "Loading your requests…" in the space of what replaces it (the "No requests yet" heading, line and button). */
+const LatestLoading = styled.div`
+  min-height: 108px;
+  color: var(--text-3);
 `;
 
 const Picker = styled.div`
@@ -667,9 +723,7 @@ const FindBody: React.FC<{
         {!wallet.ready ? (
           <p className="msg">Connect a wallet to list your own requests.</p>
         ) : list.state === "loading" ? (
-          <p className="msg" role="status">
-            Loading your requests…
-          </p>
+          <Loader className="msg" label="Loading your requests…" />
         ) : list.state === "failed" ? (
           <div role="alert" className="msg">
             <p>Could not load your requests. {list.error}</p>
@@ -797,9 +851,9 @@ const Latest: React.FC = () => {
             />
           </>
         ) : list.state === "loading" ? (
-          <p className="muted" role="status">
-            Loading your requests…
-          </p>
+          <LatestLoading>
+            <Loader label="Loading your requests…" />
+          </LatestLoading>
         ) : list.state === "failed" ? (
           <Callout tone="err" title="Could not load your requests">
             <p>{list.error}</p>
@@ -962,7 +1016,10 @@ const EntryRow: React.FC<{
   seen: number | undefined;
   names: { foreign: string; home: string };
 }> = ({ e, reports, seen, names }) => {
+  const { data } = useSetup();
   const doneReports = reports.filter((r) => r.report?.status === "reported").length;
+  // The leg's cross-chain message in Veashi Scanner, by its source chain and transaction (testnet only).
+  const scanner = scannerLink(e, data.chains());
   return (
     <li
       className={e.state}
@@ -996,7 +1053,7 @@ const EntryRow: React.FC<{
             <Tag as="div" text={e.chain === "foreign" ? names.foreign : names.home} />
           </div>
         </div>
-        {(reports.length > 0 || e.txs.length > 0) && e.state !== "todo" && (
+        {(reports.length > 0 || e.txs.length > 0 || scanner) && e.state !== "todo" && (
           <div className="more">
             {reports.length > 0 && (
               <details>
@@ -1028,6 +1085,19 @@ const EntryRow: React.FC<{
                   ))}
                 </TxRow>
               </details>
+            )}
+            {scanner && (
+              <a
+                className="scan"
+                href={scanner.href}
+                target="_blank"
+                rel="noopener noreferrer"
+                aria-label={scanner.label}
+                data-testid={`scanner-${e.key}`}
+              >
+                View in Veashi Scanner
+                <Icon.external />
+              </a>
             )}
           </div>
         )}
@@ -1154,11 +1224,13 @@ const Tracked: React.FC<{ id: bigint }> = ({ id }) => {
       seen.current.set(e.key, firstRender.current ? 0 : now);
   if (req) firstRender.current = false;
 
+  // Without a status line (loading, error, not found) the head keeps that line's space, so it has one height from
+  // the loading state to whatever replaces it.
   const head = (title: React.ReactNode, status?: React.ReactNode) => (
     <Head>
       <div className="titles">
         <h1 data-testid="track-title">{title}</h1>
-        {status}
+        {status ?? <span className="status-space" aria-hidden="true" />}
       </div>
       <FindRequest current={id} stage={req?.stage} />
     </Head>
@@ -1191,9 +1263,9 @@ const Tracked: React.FC<{ id: bigint }> = ({ id }) => {
     return (
       <Shell>
         {head(`Request #${id.toString()}`)}
-        <p className="muted" role="status">
-          Loading the request…
-        </p>
+        <RequestLoading data-testid="request-loading">
+          <Loader size="lg" label="Loading the request…" />
+        </RequestLoading>
       </Shell>
     );
   if (req === null)
@@ -1229,6 +1301,8 @@ const Tracked: React.FC<{ id: bigint }> = ({ id }) => {
   const reportsFor = (key: string) =>
     entries.filter((e) => e.report && e.report.leg === (key === "dispute-relaying" ? "dispute" : "ruling"));
   const legKeys = ["dispute-relaying", "ruling-relaying", "failure-relaying"];
+  // the legs' messages in Veashi Scanner, in the summary too: the Circuit view has no step rows (testnet only)
+  const scans = messageLinks(stageEntries, data.chains());
 
   const statusLine = (
     <Status $tone={n.status} data-testid="track-stage" data-stage={req.stage}>
@@ -1450,6 +1524,29 @@ const Tracked: React.FC<{ id: bigint }> = ({ id }) => {
                     : "Not created yet"}
               </dd>
             </div>
+            {scans.length > 0 && (
+              <div className="wide links" data-testid="summary-scanner-links">
+                <dt>Cross-chain messages (Veashi Scanner)</dt>
+                <dd>
+                  <ul>
+                    {scans.map((l) => (
+                      <li key={l.key}>
+                        <a
+                          href={l.href}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          aria-label={l.label}
+                          data-testid={`summary-scanner-${l.key}`}
+                        >
+                          {l.text}
+                          <Icon.external />
+                        </a>
+                      </li>
+                    ))}
+                  </ul>
+                </dd>
+              </div>
+            )}
           </Facts>
           <Disclosure summary="Technical details" data-testid="technical-details">
             <div style={{ display: "grid", gap: 14 }}>

@@ -1,4 +1,14 @@
-import type { FlowStage, Oracle, OracleReport, RequestAction, RequestStage, StageTx, SwitchRequest } from "../data";
+import type {
+  ChainInfo,
+  ChainKey,
+  FlowStage,
+  Oracle,
+  OracleReport,
+  RequestAction,
+  RequestStage,
+  StageTx,
+  SwitchRequest,
+} from "../data";
 import { isFailurePath, reachedStage } from "../data/lifecycle";
 import type { ChainNames } from "./circuitModel";
 import { splitMessage } from "./errors";
@@ -16,6 +26,17 @@ export interface LogEntry {
   word?: string; // the state's word when the default ("Paused" for fail) would mislead
   txs: StageTx[];
   report?: { leg: OracleReport["leg"]; oracleId: number; status: OracleReport["status"] | "none" };
+  source?: MessageSource; // a relaying leg's cross-chain message, once the transaction that dispatched it is known
+}
+
+/**
+ * The cross-chain message a leg carries, by the transaction that dispatched it: what Veashi Scanner looks a message
+ * up by (its source chain and source transaction).
+ */
+export interface MessageSource {
+  leg: "dispute" | "ruling" | "failure";
+  tx: StageTx; // requestSwitch on the foreign chain; the ruling's dispatch or sendCreationFailure on the home chain
+  name: string; // which leg, in words, for the link's accessible name
 }
 
 export const STAGE_LABEL: Record<RequestStage, string> = {
@@ -44,6 +65,37 @@ const TX_LABEL: Record<FlowStage, string> = {
   "failure-relaying": "Oracle report",
   closed: "Request closed",
 };
+
+/**
+ * A step's "View in Veashi Scanner" link: its leg's message on the scanner, with an accessible name that says which
+ * leg. Null when the step carries no leg, its dispatching transaction is not known yet, or there is no scanner (the
+ * devnet, or a testnet config without scannerUrl).
+ */
+export function scannerLink(
+  e: Pick<LogEntry, "source">,
+  chains: Record<ChainKey, Pick<ChainInfo, "scannerTxUrl">>,
+): { href: string; label: string } | null {
+  const url = e.source ? chains[e.source.tx.chain].scannerTxUrl : null;
+  if (!e.source || !url) return null;
+  return { href: url(e.source.tx.hash), label: `View in Veashi Scanner: ${e.source.name} (opens in a new tab)` };
+}
+
+/**
+ * The request's cross-chain messages in Veashi Scanner, for the request summary (shown in both the Steps and the
+ * Circuit view): one link per leg whose dispatching transaction is known, in step order; empty without a scanner. The
+ * visible text names the leg and its direction, and the accessible name starts with it.
+ */
+export function messageLinks(
+  entries: Pick<LogEntry, "key" | "source">[],
+  chains: Record<ChainKey, Pick<ChainInfo, "scannerTxUrl">>,
+): { key: string; href: string; text: string; label: string }[] {
+  return entries.flatMap((e) => {
+    const link = scannerLink(e, chains);
+    if (!link || !e.source) return [];
+    const text = e.source.name.charAt(0).toUpperCase() + e.source.name.slice(1);
+    return [{ key: e.key, href: link.href, text, label: `${text}, in Veashi Scanner (opens in a new tab)` }];
+  });
+}
 
 /** A plain name for a step's transaction; the contract call itself stays under "Technical details". */
 export const txName = (t: StageTx) =>
@@ -111,6 +163,13 @@ export function logEntries(req: SwitchRequest, oracles: Oracle[], names: ChainNa
   const disputeLeg = req.reports.filter((r) => r.leg === "dispute" && r.status === "reported").length;
   const returnLeg = req.reports.filter((r) => r.leg === "ruling" && r.status === "reported").length;
   const home = req.homeDisputeId !== null ? ` #${req.homeDisputeId.toString()}` : "";
+  // The dispatching transaction of each leg: the request (dispute leg), the ruling or the creation failure (return leg).
+  const source = (leg: MessageSource["leg"], stage: FlowStage, chain: StageTx["chain"], name: string) => {
+    const tx = req.txs.find((t) => t.stage === stage && t.chain === chain);
+    return tx ? { source: { leg, tx, name } } : {};
+  };
+  const there = `${names.foreign} to ${names.home}`;
+  const back = `${names.home} to ${names.foreign}`;
   const blocked = req.creation?.state === "waiting" && req.creation.blocker !== null;
 
   const opening: LogEntry = failurePath
@@ -156,6 +215,8 @@ export function logEntries(req: SwitchRequest, oracles: Oracle[], names: ChainNa
       tech: `dispatched to ${req.selection.oracleIds.length} oracles; runs once ${k} report it`,
       state: legState(1),
       txs: txs("dispute-relaying"),
+      // a request still at "submitted" dispatched no message (lifecycle.ts): nothing to look up yet
+      ...(s >= 1 ? source("dispute", "submitted", "foreign", `the request, ${there}`) : {}),
     },
     ...reports("dispute", 1),
     {
@@ -188,6 +249,7 @@ export function logEntries(req: SwitchRequest, oracles: Oracle[], names: ChainNa
         tech: "the creation failure travels back over the dispute's oracles",
         state: legState(5),
         txs: txs("failure-relaying"),
+        ...source("failure", "creation-failed", "home", `the creation failure, ${back}`),
       },
       ...reports("ruling", 5),
       {
@@ -218,6 +280,7 @@ export function logEntries(req: SwitchRequest, oracles: Oracle[], names: ChainNa
       tech: "HomeGateway.rule → dispatch to the same oracles",
       state: legState(5),
       txs: txs("ruling-relaying"),
+      ...source("ruling", "ruled", "home", `the decision, ${back}`),
     },
     ...reports("ruling", 5),
     {

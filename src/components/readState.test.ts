@@ -94,9 +94,9 @@ describe("Track load state", () => {
 describe("fee quote status", () => {
   it("offers Retry fee calculation only for a quote error", () => {
     const base = { selError: false, quoteError: null, updating: false, hadQuote: false };
-    expect(costStatus({ ...base, quoteError: "no answer" })).toEqual({ text: "no answer", retry: true });
-    expect(costStatus({ ...base, updating: true, hadQuote: true })).toEqual({ text: "Updating cost…", retry: false });
-    expect(costStatus({ ...base, selError: true }).retry).toBe(false);
+    expect(costStatus({ ...base, quoteError: "no answer" })).toEqual({ text: "no answer", retry: true, loading: false });
+    expect(costStatus({ ...base, updating: true, hadQuote: true })).toEqual({ text: "Updating cost…", retry: false, loading: true });
+    expect(costStatus({ ...base, selError: true })).toMatchObject({ retry: false, loading: false });
   });
 });
 

@@ -23,7 +23,7 @@ import {
   yahoAbi,
   yaruAbi,
 } from "./abi";
-import { explorerTxUrl, type ParsedDevnetEnv } from "./env";
+import { explorerTxUrl, scannerTxUrl, type ParsedDevnetEnv } from "./env";
 import { getContractEventsPaged } from "./logs";
 import { viemChains } from "./networks";
 import { CANCELLED_BEFORE_SENDING, describeError, MINED_REVERT, SwitchError, toSwitchError, withLead, type ErrorContext } from "./errors";
@@ -179,6 +179,7 @@ export function createChainSwitchData(env: ParsedDevnetEnv, config: Config): Swi
     name: env[key].name,
     rpcUrl: env[key].rpcUrl,
     explorerTxUrl: env[key].explorerUrl ? (hash: Hex) => explorerTxUrl(env[key], hash)! : null,
+    scannerTxUrl: env.scannerUrl ? (hash: Hex) => scannerTxUrl(env.scannerUrl, env[key].chainId, hash)! : null,
   });
   const clients = { foreign, home };
 

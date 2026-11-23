@@ -13,6 +13,9 @@ export interface ChainInfo {
   name: string; // shown in the UI, e.g. "Base-like" on the devnet, "Base Sepolia" on the testnet
   rpcUrl: string; // a local anvil URL on the devnet, a public RPC on a testnet
   explorerTxUrl: ((hash: Hex) => string) | null; // null on the devnet: the UI shows the hash, copyable, without a link
+  // The cross-chain message a transaction on this chain dispatched, in Veashi Scanner; null without a scanner
+  // (always on the devnet).
+  scannerTxUrl: ((hash: Hex) => string) | null;
 }
 
 export interface Oracle {

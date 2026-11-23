@@ -292,6 +292,13 @@ export const Icon = {
       <path d="M6 3l5 5-5 5" />
     </svg>
   ),
+  external: (p: React.SVGAttributes<SVGElement>) => (
+    <svg {...svgProps} {...p}>
+      <path d="M9.5 2.5h4v4" />
+      <path d="M13.5 2.5L7.5 8.5" />
+      <path d="M12 9.5v3.2a.8.8 0 01-.8.8H3.3a.8.8 0 01-.8-.8V4.8a.8.8 0 01.8-.8h3.2" />
+    </svg>
+  ),
   close: (p: React.SVGAttributes<SVGElement>) => (
     <svg {...svgProps} {...p}>
       <path d="M4 4l8 8M12 4l-8 8" />

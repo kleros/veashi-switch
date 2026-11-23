@@ -20,6 +20,7 @@ export interface DevnetEnv {
     home: Record<string, Address>; // HomeGateway, KlerosCoreRuler, Yaho, Yaru, adapters...
   };
   testWallet: boolean; // true when the app may offer the dev-account test connector (devnet only)
+  scannerUrl: string | null; // Veashi Scanner base URL, testnet only; null hides the scanner links
 }
 
 /** Fetches /devnet.json; rejects with a plain-language error when the devnet is not running. */

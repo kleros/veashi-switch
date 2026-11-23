@@ -1,5 +1,6 @@
 {
   "kind": "testnet",
+  "scannerUrl": "",
   "foreign": {
     "chainId": 84532,
     "name": "Base Sepolia",

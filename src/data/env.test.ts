@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { explorerTxUrl, isLocalRpcUrl, parseDevnetEnv } from "./env";
+import { explorerTxUrl, isLocalRpcUrl, parseDevnetEnv, scannerTxUrl } from "./env";
 import { SwitchError } from "./errors";
 import { createSwitchData, createWagmiConfig, loadDevnetEnv, loadEnv, missingContracts } from "./index";
 import { A, sampleEnv } from "./testing";
@@ -150,6 +150,54 @@ describe("testnet config parsing", () => {
   });
 });
 
+describe("Veashi Scanner config", () => {
+  const SCANNER = "https://veashi-scanner.vercel.app";
+  const HASH = "0xf0eb86ade99d5dc4e800e2e59ad8977f46fce55523878c09a6228eb81ab28b2f";
+  const withScanner = (scannerUrl: unknown) => ({ ...testnetJson(), scannerUrl });
+
+  it("accepts an https scannerUrl and strips trailing slashes", () => {
+    expect(parseDevnetEnv(withScanner(SCANNER)).scannerUrl).toBe(SCANNER);
+    expect(parseDevnetEnv(withScanner(`${SCANNER}//`)).scannerUrl).toBe(SCANNER);
+    expect(parseDevnetEnv(withScanner("https://scan.example/veashi/")).scannerUrl).toBe("https://scan.example/veashi");
+  });
+  it("keeps the parsed URL, not the raw text: surrounding whitespace is dropped", () => {
+    expect(parseDevnetEnv(withScanner(" https://x.example ")).scannerUrl).toBe("https://x.example");
+    expect(parseDevnetEnv(withScanner("https://x.example\t")).scannerUrl).toBe("https://x.example");
+  });
+  it("is optional: absent, null or blank means no scanner", () => {
+    expect(parseDevnetEnv(testnetJson()).scannerUrl).toBeNull();
+    expect(parseDevnetEnv(withScanner(null)).scannerUrl).toBeNull();
+    expect(parseDevnetEnv(withScanner("")).scannerUrl).toBeNull();
+  });
+  it("rejects a scannerUrl that is not https, or that has a query or fragment", () => {
+    for (const bad of ["http://veashi-scanner.vercel.app", "ftp://x.example", "javascript:alert(1)", "veashi-scanner.vercel.app", 42, true]) {
+      expect(() => parseDevnetEnv(withScanner(bad))).toThrow(/scannerUrl.*https/);
+    }
+    for (const bad of [`${SCANNER}/?x=1`, `${SCANNER}#top`, "https://x.example/?", "https://x.example#"]) {
+      expect(() => parseDevnetEnv(withScanner(bad))).toThrow(/scannerUrl.*query or a fragment/);
+    }
+  });
+  it("is never set on the devnet, whatever devnet.json says", () => {
+    expect(parseDevnetEnv({ ...sampleEnv(), scannerUrl: SCANNER }).scannerUrl).toBeNull();
+  });
+  it("builds /tx/<source chain id>/<source tx>, or null without a scanner", () => {
+    expect(scannerTxUrl(SCANNER, 84532, HASH)).toBe(`${SCANNER}/tx/84532/${HASH}`);
+    expect(scannerTxUrl(null, 84532, HASH)).toBeNull();
+  });
+  it("gives each chain a scanner link with its own chain id, and survives the re-parse in createSwitchData", () => {
+    const env = parseDevnetEnv(withScanner(`${SCANNER}/`));
+    const chains = createSwitchData(env, createWagmiConfig(env)).chains();
+    expect(chains.foreign.scannerTxUrl?.(HASH)).toBe(`${SCANNER}/tx/84532/${HASH}`);
+    expect(chains.home.scannerTxUrl?.(HASH)).toBe(`${SCANNER}/tx/421614/${HASH}`);
+    const none = parseDevnetEnv(testnetJson());
+    expect(createSwitchData(none, createWagmiConfig(none)).chains().foreign.scannerTxUrl).toBeNull();
+    const devnet = parseDevnetEnv(sampleEnv());
+    const devChains = createSwitchData(devnet, createWagmiConfig(devnet)).chains();
+    expect(devChains.foreign.scannerTxUrl).toBeNull();
+    expect(devChains.home.scannerTxUrl).toBeNull();
+  });
+});
+
 describe("loadEnv on a testnet build", () => {
   afterEach(() => {
     vi.unstubAllEnvs();
@@ -164,6 +212,8 @@ describe("loadEnv on a testnet build", () => {
     expect(env.foreign.chainId).toBe(84532);
     expect(env.home.chainId).toBe(421614);
     expect(missingContracts(env)).toEqual([]);
+    // Blank until the kleros/vea veashi-scanner has a public URL; either unset or an https base.
+    expect(env.scannerUrl === null || env.scannerUrl.startsWith("https://")).toBe(true);
     expect(fetch).not.toHaveBeenCalled();
   });
   it("with blank contract addresses, every read rejects naming the unset contracts and nothing reaches an RPC", async () => {

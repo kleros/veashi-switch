@@ -39,6 +39,7 @@ describe("createSwitchData", () => {
       name: "Base-like",
       rpcUrl: "http://127.0.0.1:8645",
       explorerTxUrl: null,
+      scannerTxUrl: null,
     });
     expect(data.chains().home.key).toBe("home");
     expect(typeof data.devnet?.rule).toBe("function");
