@@ -73,6 +73,7 @@ export function fakeSetup(): AppSetup {
     home: { chainId: home.id, rpcUrl: "http://127.0.0.1:2", name: home.name, explorerUrl: null, fromBlock: 0n },
     addresses: { foreign: {}, home: {} },
     testWallet: true,
+    scannerUrl: null,
   };
   const config = createConfig({
     chains: [foreign, home],
@@ -219,8 +220,8 @@ export function fakeSetup(): AppSetup {
 
   const data: SwitchData = {
     chains: () => ({
-      foreign: { key: "foreign", network: "devnet", id: foreign.id, name: foreign.name, rpcUrl: env.foreign.rpcUrl, explorerTxUrl: null },
-      home: { key: "home", network: "devnet", id: home.id, name: home.name, rpcUrl: env.home.rpcUrl, explorerTxUrl: null },
+      foreign: { key: "foreign", network: "devnet", id: foreign.id, name: foreign.name, rpcUrl: env.foreign.rpcUrl, explorerTxUrl: null, scannerTxUrl: null },
+      home: { key: "home", network: "devnet", id: home.id, name: home.name, rpcUrl: env.home.rpcUrl, explorerTxUrl: null, scannerTxUrl: null },
     }),
     oracles: async () => ORACLES,
     defaultSelection: async () => DEFAULT,

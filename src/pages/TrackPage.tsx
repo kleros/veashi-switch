@@ -27,6 +27,7 @@ import {
   logEntries,
   nowModel,
   pausedModel,
+  scannerLink,
   STAGE_LABEL,
   txName,
   type EntryState,
@@ -373,6 +374,19 @@ const Log = styled.ol`
     align-items: center;
     color: var(--blue);
     font-weight: 600;
+  }
+  /* the leg's message in Veashi Scanner: an ordinary link, at the summaries' height and weight */
+  .scan {
+    min-height: 44px;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-weight: 600;
+  }
+  .scan svg {
+    width: 14px;
+    height: 14px;
+    flex: none;
   }
   .reports {
     list-style: none;
@@ -962,7 +976,10 @@ const EntryRow: React.FC<{
   seen: number | undefined;
   names: { foreign: string; home: string };
 }> = ({ e, reports, seen, names }) => {
+  const { data } = useSetup();
   const doneReports = reports.filter((r) => r.report?.status === "reported").length;
+  // The leg's cross-chain message in Veashi Scanner, by its source chain and transaction (testnet only).
+  const scanner = scannerLink(e, data.chains());
   return (
     <li
       className={e.state}
@@ -996,7 +1013,7 @@ const EntryRow: React.FC<{
             <Tag as="div" text={e.chain === "foreign" ? names.foreign : names.home} />
           </div>
         </div>
-        {(reports.length > 0 || e.txs.length > 0) && e.state !== "todo" && (
+        {(reports.length > 0 || e.txs.length > 0 || scanner) && e.state !== "todo" && (
           <div className="more">
             {reports.length > 0 && (
               <details>
@@ -1028,6 +1045,19 @@ const EntryRow: React.FC<{
                   ))}
                 </TxRow>
               </details>
+            )}
+            {scanner && (
+              <a
+                className="scan"
+                href={scanner.href}
+                target="_blank"
+                rel="noopener noreferrer"
+                aria-label={scanner.label}
+                data-testid={`scanner-${e.key}`}
+              >
+                View in Veashi Scanner
+                <Icon.external />
+              </a>
             )}
           </div>
         )}

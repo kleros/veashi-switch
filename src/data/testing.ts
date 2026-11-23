@@ -20,5 +20,6 @@ export const sampleDevnetEnv = (): DevnetEnv => {
     kind: "devnet",
     foreign: { ...raw.foreign, explorerUrl: null, fromBlock: 0n },
     home: { ...raw.home, explorerUrl: null, fromBlock: 0n },
+    scannerUrl: null,
   };
 };
