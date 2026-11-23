@@ -283,8 +283,10 @@ test("[scenario:circuit-arrows] every connector's arrow points the way the messa
   // Track reads the request first (from the chain on the devnet): the Circuit toggle appears once it has
   await expect(page.getByTestId("toggle-circuit")).toBeVisible();
   await showCircuit(page);
-  // on the devnet the relayer may finish the leg before Track opens: either is a sent request
-  await expect(page.getByTestId("leg-dispute")).toHaveAttribute("data-status", /^(live|done)$/);
+  // in progress: in fake mode the leg is slowed and still crossing; on the devnet the relayer may already have
+  // finished it when Track opens, so either is a sent request there
+  const sent = fake ? "live" : /^(live|done)$/;
+  await expect(page.getByTestId("leg-dispute")).toHaveAttribute("data-status", sent);
   const live = await expectArrows(page, "request leg sent");
   expect(stateOf(live, "bulb-request")).toBe("done");
   // nothing has come back yet (whether Delivered is reached depends on the relayer's pace)
@@ -303,7 +305,7 @@ test("[scenario:circuit-arrows] every connector's arrow points the way the messa
   // In progress: the decision leg relaying.
   await page.getByRole("button", { name: "Decide On" }).click();
   await showCircuit(page);
-  await expect(page.getByTestId("leg-ruling")).toHaveAttribute("data-status", /^(live|done)$/, { timeout: 120_000 });
+  await expect(page.getByTestId("leg-ruling")).toHaveAttribute("data-status", sent, { timeout: 120_000 });
   const back = await expectArrows(page, "decision leg sent");
   expect(wireStates(back).slice(0, 4)).toEqual(["done", "done", "done", "done"]);
 
