@@ -1,0 +1,32 @@
+{
+  "kind": "testnet",
+  "foreign": {
+    "chainId": 84532,
+    "name": "Base Sepolia",
+    "rpcUrl": "https://base-sepolia-rpc.publicnode.com",
+    "explorerUrl": "https://sepolia.basescan.org",
+    "fromBlock": 0
+  },
+  "home": {
+    "chainId": 421614,
+    "name": "Arbitrum Sepolia",
+    "rpcUrl": "https://sepolia-rollup.arbitrum.io/rpc",
+    "explorerUrl": "https://sepolia.arbiscan.io",
+    "fromBlock": 0
+  },
+  "addresses": {
+    "foreign": {
+      "ForeignGateway": "",
+      "GatewayLightbulb": "",
+      "USDC": "",
+      "Yaho": "0xf69BCD5Ff8A64919BE217bC017454aba4f6daa9D",
+      "Yaru": "0xFe9fF402A80EF4aBA0181759ad4ECDAfc815dFbf"
+    },
+    "home": {
+      "HomeGateway": "",
+      "KlerosCoreRuler": "",
+      "Yaho": "0xDbdF80c87f414fac8342e04D870764197bD3bAC7",
+      "Yaru": "0xEA3799EA443bf65a7Dc8C1dBfd9e64962f9Af724"
+    }
+  }
+}

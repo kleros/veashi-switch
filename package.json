@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "GatewayLightbulb switch UI over the Kleros Veashi gateways, on a local two-chain anvil devnet",
+  "description": "GatewayLightbulb switch UI over the Kleros Veashi gateways, on a local two-chain anvil devnet or the public testnets",
   "license": "MIT",
   "scripts": {
     "dev": "vite",

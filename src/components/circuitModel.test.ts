@@ -30,6 +30,9 @@ function req(stage: RequestStage, over: Partial<SwitchRequest> = {}): SwitchRequ
     reports: [],
     txs: [tx("submitted", 1)],
     error: null,
+    creation: null,
+    refund: null,
+    actions: [],
     updatedAt: 0,
     ...over,
   };
@@ -135,11 +138,12 @@ describe("previewModel", () => {
 });
 
 describe("logEntries", () => {
-  it("lists the six stages in order with one row per oracle and leg", () => {
+  it("lists the seven stages in order with one row per oracle and leg", () => {
     const e = logEntries(req("dispute-relaying"), oracles, names);
     expect(e.filter((x) => !x.report).map((x) => x.key)).toEqual([
       "submitted",
       "dispute-relaying",
+      "dispute-delivered",
       "dispute-received",
       "ruled",
       "ruling-relaying",

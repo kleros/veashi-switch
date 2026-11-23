@@ -5,7 +5,7 @@ import { WagmiProvider } from "wagmi";
 import { SetupProvider, type AppSetup } from "./components/setup";
 import { ToastProvider } from "./components/Toast";
 import { TopBar } from "./components/TopBar";
-import { NetworkDown } from "./components/NetworkDown";
+import { NetworkDown, setupCopy } from "./components/NetworkDown";
 import { PageHead, Shell } from "./components/ui";
 import { AccountControl, WalletProvider } from "./components/wallet";
 import { RequestPage } from "./pages/RequestPage";
@@ -23,20 +23,23 @@ const ScrollTop: React.FC = () => {
 
 export type Boot = { setup: AppSetup; error?: undefined } | { setup?: undefined; error: string };
 
-const SetupError: React.FC<{ error: string }> = ({ error }) => (
-  <>
-    <TopBar />
-    <Shell>
-      <PageHead>
-        <div>
-          <h1>Local network unavailable</h1>
-          <p>This app talks only to contracts on a local two-chain demo network.</p>
-        </div>
-      </PageHead>
-      <NetworkDown error={error} onRetry={() => window.location.reload()} />
-    </Shell>
-  </>
-);
+const SetupError: React.FC<{ error: string }> = ({ error }) => {
+  const copy = setupCopy(error);
+  return (
+    <>
+      <TopBar />
+      <Shell>
+        <PageHead>
+          <div>
+            <h1>{copy.heading}</h1>
+            <p>{copy.lede}</p>
+          </div>
+        </PageHead>
+        <NetworkDown error={error} onRetry={() => window.location.reload()} />
+      </Shell>
+    </>
+  );
+};
 
 export const App: React.FC<{ boot: Boot }> = ({ boot }) => {
   const [queryClient] = useState(() => new QueryClient());

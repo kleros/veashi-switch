@@ -1,3 +1,5 @@
+import { TESTNET_BUILD } from "./build";
+
 /** The text before the first newline, and whatever follows it (the technical detail). */
 export function splitMessage(raw: string): { head: string; detail: string | null } {
   const text = raw.trim();
@@ -35,7 +37,12 @@ export function describeError(e: unknown): { text: string; detail: string | null
   if (m.includes("connector not connected") || m.includes("no account"))
     return { text: "Connect a wallet first.", detail: null };
   if (m.includes("failed to fetch") || m.includes("econnrefused") || m.includes("fetch failed"))
-    return { text: "The local network does not answer. Start it and try again.", detail: raw };
+    return {
+      text: TESTNET_BUILD
+        ? "The test network does not answer. Check your connection and try again."
+        : "The local network does not answer. Start it and try again.",
+      detail: raw,
+    };
   const text = head.length > 300 ? `${head.slice(0, 300)}…` : head;
   return { text, detail: detail ?? (head.length > 300 ? head : null) };
 }

@@ -1,10 +1,14 @@
 // The devnet relayer, standing in for the bridges: every message a MockYaho dispatches is reported on the other
 // chain oracle by oracle (each adapter stores the hash, VEASHI_RELAY_STEP_MS apart, so the UI shows "1 of 2"), and
-// executed through the other chain's MockYaru once the threshold is met. A failing execution (for example a
-// HomeGateway without funds) is retried until it passes. Started by scripts/devnet.sh; reads DEVNET_JSON.
+// executed through the other chain's MockYaru once the threshold is met. A failing execution is retried until it
+// passes. It is also the gateways' keeper for the steps anyone can run: it creates every delivered dispute on the
+// court (HomeGateway.createReceivedDispute, retried while it reverts, for example while the HomeGateway lacks funds)
+// and gives every returned ruling or creation failure to the arbitrable (ForeignGateway.executeRuling). It never
+// sends a creation failure: once a dispute's creation window has passed, that step is left to the Track page.
+// Started by scripts/devnet.sh; reads DEVNET_JSON.
 import { readFileSync, writeFileSync } from "node:fs";
 import { createPublicClient, createWalletClient, http, type Address, type Hex, type PublicClient } from "viem";
-import { adapterAbi, allErrorsAbi, yahoAbi, yaruAbi } from "../src/data/abi";
+import { adapterAbi, allErrorsAbi, foreignGatewayAbi, homeGatewayAbi, yahoAbi, yaruAbi } from "../src/data/abi";
 import { devnetChains } from "../src/data/chain";
 import { parseDevnetEnv } from "../src/data/env";
 import { describeError } from "../src/data/errors";
@@ -146,7 +150,124 @@ function lane(name: string, from: "foreign" | "home", to: "foreign" | "home") {
   return { poll };
 }
 
-const lanes = [lane("dispute leg", "foreign", "home"), lane("ruling leg", "home", "foreign")];
+/**
+ * The keeper: creates delivered disputes on the court and executes returned rulings and creation failures. Each
+ * pending item is simulated first and retried every RETRY_MS while it would revert.
+ */
+function keeper() {
+  const home = createPublicClient({ chain: chains.home, transport: http(env.home.rpcUrl), pollingInterval: 100 }) as PublicClient;
+  const foreign = createPublicClient({ chain: chains.foreign, transport: http(env.foreign.rpcUrl), pollingInterval: 100 }) as PublicClient;
+  const homeWallet = createWalletClient({ chain: chains.home, transport: http(env.home.rpcUrl), account: RELAYER_ACCOUNT });
+  const foreignWallet = createWalletClient({ chain: chains.foreign, transport: http(env.foreign.rpcUrl), account: RELAYER_ACCOUNT });
+  const homeGateway = env.addresses.home.HomeGateway;
+  const foreignGateway = env.addresses.foreign.ForeignGateway;
+  let homeFrom = 0n;
+  let foreignFrom = 0n;
+  const toCreate = new Map<Hex, { message: unknown; retryAt: number; reason: string }>();
+  const toExecute = new Map<bigint, { retryAt: number; reason: string }>();
+
+  async function send(
+    client: PublicClient,
+    wallet: typeof homeWallet | typeof foreignWallet,
+    call: { address: Address; abi: readonly unknown[]; functionName: string; args: readonly unknown[] },
+  ): Promise<string> {
+    await client.simulateContract({ ...call, abi: [...call.abi, ...allErrorsAbi], account: RELAYER_ACCOUNT } as never);
+    const tx = await wallet.writeContract(call as never);
+    const receipt = await client.waitForTransactionReceipt({ hash: tx });
+    return receipt.status;
+  }
+
+  async function poll() {
+    const homeLatest = await home.getBlockNumber();
+    if (homeLatest >= homeFrom) {
+      const logs = await home.getContractEvents({
+        address: homeGateway,
+        abi: homeGatewayAbi,
+        eventName: "DisputeReceived",
+        fromBlock: homeFrom,
+        toBlock: homeLatest,
+      });
+      for (const l of logs) toCreate.set(l.args._disputeHash as Hex, { message: l.args._message, retryAt: 0, reason: "" });
+      homeFrom = homeLatest + 1n;
+    }
+    const foreignLatest = await foreign.getBlockNumber();
+    if (foreignLatest >= foreignFrom) {
+      for (const eventName of ["RulingReceived", "CreationFailureReceived"] as const) {
+        const logs = await foreign.getContractEvents({
+          address: foreignGateway,
+          abi: foreignGatewayAbi,
+          eventName,
+          fromBlock: foreignFrom,
+          toBlock: foreignLatest,
+        });
+        for (const l of logs) toExecute.set(l.args._disputeID as bigint, { retryAt: 0, reason: "" });
+      }
+      foreignFrom = foreignLatest + 1n;
+    }
+
+    const now = Date.now();
+    for (const [hash, item] of toCreate) {
+      if (now < item.retryAt) continue;
+      const received = await home.readContract({
+        address: homeGateway,
+        abi: homeGatewayAbi,
+        functionName: "getReceivedDispute",
+        args: [hash],
+      });
+      if (received.created || received.creationFailed) {
+        toCreate.delete(hash);
+        continue;
+      }
+      try {
+        const status = await send(home, homeWallet, {
+          address: homeGateway,
+          abi: homeGatewayAbi,
+          functionName: "createReceivedDispute",
+          args: [item.message],
+        });
+        log(`keeper: dispute ${hash.slice(0, 10)} created on the court (${status})`);
+        if (status === "success") toCreate.delete(hash);
+      } catch (error) {
+        const reason = describeError(error).split("\n")[0];
+        if (reason !== item.reason) log(`keeper: dispute ${hash.slice(0, 10)} cannot be created yet: ${reason}`);
+        item.reason = reason;
+        item.retryAt = Date.now() + RETRY_MS;
+      }
+    }
+    for (const [id, item] of toExecute) {
+      if (now < item.retryAt) continue;
+      const [, , executed] = await foreign.readContract({
+        address: foreignGateway,
+        abi: foreignGatewayAbi,
+        functionName: "receivedRulings",
+        args: [id],
+      });
+      if (executed) {
+        toExecute.delete(id);
+        continue;
+      }
+      try {
+        const status = await send(foreign, foreignWallet, {
+          address: foreignGateway,
+          abi: foreignGatewayAbi,
+          functionName: "executeRuling",
+          args: [id],
+        });
+        log(`keeper: dispute #${id} executed on the foreign chain (${status})`);
+        if (status === "success") toExecute.delete(id);
+      } catch (error) {
+        const reason = describeError(error).split("\n")[0];
+        if (reason !== item.reason) log(`keeper: dispute #${id} cannot be executed yet: ${reason}`);
+        item.reason = reason;
+        item.retryAt = Date.now() + RETRY_MS;
+      }
+    }
+  }
+
+  return { poll };
+}
+
+const lanes = [lane("dispute leg", "foreign", "home"), lane("return leg", "home", "foreign"), keeper()];
 let stopping = false;
 for (const signal of ["SIGTERM", "SIGINT"] as const) {
   process.on(signal, () => {

@@ -3,7 +3,7 @@ import { Link, NavLink, useLocation } from "react-router-dom";
 import styled from "styled-components";
 import { useThemeMode } from "../theme/ThemeMode";
 import { HelpDialog } from "./HelpDialog";
-import { useChainNames, useRouteMaybe } from "./setup";
+import { TESTNET_BUILD, useChainNames, useRouteMaybe } from "./setup";
 import { Icon, IconButton, LibButton } from "./ui";
 
 const Bar = styled.header`
@@ -172,7 +172,7 @@ export const TopBar: React.FC<{ account?: React.ReactNode }> = ({ account }) => 
   const pillBody = (
     <>
       <Dot $c="#0052ff" />
-      {route ? route.pill : "Local devnet"}
+      {route ? route.pill : TESTNET_BUILD ? "Public testnet" : "Local devnet"}
       <Dot $c="#28a0f0" />
     </>
   );
@@ -195,7 +195,7 @@ export const TopBar: React.FC<{ account?: React.ReactNode }> = ({ account }) => 
             href={loc.pathname.startsWith("/track/") ? "#track-route" : undefined}
             data-testid="route"
             title="The route of the tracked request"
-            aria-label={loc.pathname.startsWith("/track/") ? `${route?.pill ?? "Local devnet"}. Go to this request's route` : undefined}
+            aria-label={loc.pathname.startsWith("/track/") ? `${route?.pill ?? (TESTNET_BUILD ? "Public testnet" : "Local devnet")}. Go to this request's route` : undefined}
           >
             {pillBody}
           </RoutePill>

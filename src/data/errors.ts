@@ -11,6 +11,7 @@ export interface ErrorContext {
   oracleName?: (oracleId: number) => string;
   homeChainName?: string;
   usdcDecimals?: number;
+  network?: "devnet" | "testnet"; // devnet (the default) names the local operator and local ETH
 }
 
 /** Finds the custom error behind a viem error (or raw revert data), walking the cause chain. */
@@ -51,10 +52,16 @@ const eth = (wei: unknown) => `${formatEther(BigInt(wei as bigint))} ETH`;
 export function describeRevert(revert: DecodedRevert, context: ErrorContext = {}): string | null {
   const a = revert.args;
   const home = context.homeChainName ?? "the home chain";
+  const local = context.network !== "testnet";
+  const ether = local ? "local ETH" : "ETH";
+  const operator = local ? "The local operator" : "Its operator";
   switch (revert.errorName) {
     case "InsufficientPayment":
     case "ArbitrationFeesNotEnough":
-      return "The amount sent is less than the cost of this request. The cost may have changed: refresh it and send again.\nThe gateway reverted with InsufficientPayment.";
+    case "InsufficientFees":
+      return `The amount sent is less than the cost of this request. The cost may have changed: refresh it and send again.\nThe gateway reverted with ${revert.errorName}.`;
+    case "ThresholdBelowMinimum":
+      return `This route requires at least ${a[0]} oracles to agree, more than this request asks for.\nThe gateway reverted with ThresholdBelowMinimum.`;
     case "InvalidThreshold":
       return a.length === 2
         ? `The agreement threshold (${a[0]}) is higher than the number of oracles (${a[1]}).\nThe gateway reverted with InvalidThreshold.`
@@ -66,9 +73,9 @@ export function describeRevert(revert: DecodedRevert, context: ErrorContext = {}
     case "DuplicateOracle":
       return `An oracle is selected twice. Select each oracle once.\nOracle #${Number(a[0])} appears twice in the selection.`;
     case "InsufficientFunds":
-      return `The court side of this local devnet lacks local ETH to open the case. The local operator needs to fund it.\nThe HomeGateway on ${home} needs ${eth(a[0])} and holds ${eth(a[1])}; the case is created as soon as it is funded.`;
+      return `The court side${local ? " of this local devnet" : ""} lacks ${ether} to open the case. ${operator} needs to fund it.\nThe HomeGateway on ${home} needs ${eth(a[0])} and holds ${eth(a[1])}; anyone can open the case once it is funded.`;
     case "ReporterCannotPay":
-      return `This oracle's relay service lacks local ETH for delivery. The local operator needs to fund it.\nThe ${String(a[0])} reporter cannot pay its bridge fee (needs ${eth(a[1])}, holds ${eth(a[2])}). Try again later, or choose oracles without ${String(a[0])}.`;
+      return `This oracle's relay service lacks ${ether} for delivery. ${operator} needs to fund it.\nThe ${String(a[0])} reporter cannot pay its bridge fee (needs ${eth(a[1])}, holds ${eth(a[2])}). Try again later, or choose oracles without ${String(a[0])}.`;
     case "TokenNotAccepted":
       return "This token is not accepted for fees. Pay in ETH instead.\nThe gateway does not accept this token.";
     case "ERC20InsufficientAllowance":
@@ -84,12 +91,23 @@ export function describeRevert(revert: DecodedRevert, context: ErrorContext = {}
       return "This message was already delivered.";
     case "CannotRuleTwice":
     case "AlreadyRuled":
-    case "RulingAlreadyExecuted":
       return "This dispute already has a ruling.";
+    case "RulingAlreadyExecuted":
+      return "The court's answer was already applied to this request.";
+    case "RulingNotReceived":
+      return "Nothing has come back from the court for this request yet.";
+    case "DisputeAlreadyCreated":
+      return "The court already opened this case.";
+    case "CreationTimeoutNotPassed":
+      return "The court still has time to open the case. The failure can be sent back once that window closes.";
+    case "CreationFailureAlreadySent":
+      return "The failure was already sent back.";
+    case "NoRefundPending":
+      return "No refund is due for this request: it was already claimed, or the case was opened.";
     case "RulerOnly":
-      return "Only the devnet ruler account can give this ruling.";
+      return local ? "Only the devnet ruler account can give this ruling." : "Only the court's ruler account can give this ruling.";
     case "RulingModeNotSet":
-      return "The court has no ruling mode set; redeploy the devnet.";
+      return local ? "The court has no ruling mode set; redeploy the devnet." : "The court has no ruling mode set. Its operator needs to set one.";
     case "UnexpectedAdapters":
       return "The message was verified by other oracles than the ones selected for this request, so it was refused.\nThe gateway reverted with UnexpectedAdapters.";
     case "DisputeDoesNotExist":
@@ -114,7 +132,10 @@ export function describeError(error: unknown, context: ErrorContext = {}): strin
     );
     if (rejected) return "You rejected the request in your wallet.";
     const unreachable = error.walk((e) => (e as BaseError).name === "HttpRequestError");
-    if (unreachable) return "The local devnet does not answer. Start it with `yarn devnet` and reload.";
+    if (unreachable)
+      return context.network === "testnet"
+        ? "The testnet RPC does not answer. Check your connection and reload; a public RPC may be limiting requests."
+        : "The local devnet does not answer. Start it with `yarn devnet` and reload.";
     return error.shortMessage;
   }
   if (error instanceof Error) return error.message;

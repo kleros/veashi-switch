@@ -2,6 +2,7 @@ import { expect, test } from "@playwright/test";
 import { connectTestWallet, expectPlainText, goToStep, sendAndConfirm, showCircuit } from "./helpers";
 
 // Failure states that only the fake setup can stage (`?fail=`, `?stall=1`); skipped on the devnet build.
+// (The creation failure runs on both: creation-failure.spec.ts.)
 async function isFake(page: import("@playwright/test").Page) {
   const res = await page.request.get("/devnet.json");
   return !res.ok() || !(res.headers()["content-type"] ?? "").includes("json");
@@ -36,15 +37,15 @@ test("a paid request whose delivery paused says so, with the operator action and
   await expect(paused).toBeVisible();
   await expect(page.getByTestId("now")).toContainText("Request paid; delivery paused");
   await expect(paused).toContainText("Last successful step");
-  await expect(page.getByTestId("now")).toContainText("fund it");
-  expect(((await page.getByTestId("now").innerText()).match(/lacks local ETH/g) ?? []).length).toBe(1);
+  await expect(page.getByTestId("now")).toContainText("requires at least 3 oracles to agree");
+  expect(((await page.getByTestId("now").innerText()).match(/requires at least 3 oracles/g) ?? []).length).toBe(1);
   await expect(paused).not.toContainText(/relay service/i);
   await expect(paused).toContainText("Do not create a duplicate request");
   await expect(page.getByTestId("refresh-status")).toBeVisible();
-  await expect(page.locator("body")).not.toContainText(/Cancelled before sending|HomeGateway/);
+  await expect(page.locator("body")).not.toContainText(/Cancelled before sending|ThresholdBelowMinimum/);
   await expectPlainText(page, `Track paused #${id}`);
   await paused.getByRole("button", { name: "Technical details" }).click();
-  await expect(paused).toContainText("HomeGateway");
+  await expect(paused).toContainText("ThresholdBelowMinimum");
 });
 
 test("Track keeps the bulb neutral until the current-state read resolves, and offers a retry if it fails", async ({ page }) => {

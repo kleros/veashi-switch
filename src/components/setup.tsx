@@ -1,6 +1,7 @@
 import React, { createContext, useContext } from "react";
 import type { Config } from "wagmi";
 import type { DevnetEnv, SwitchData } from "../data";
+import { TESTNET_BUILD } from "./build";
 import { routeConfig, type RouteConfig } from "./route";
 
 /** Everything the pages need: the devnet env, the wagmi config and the data seam. */
@@ -22,11 +23,19 @@ export function useSetup(): AppSetup {
   return s;
 }
 
-export function useChainNames(): { foreign: string; home: string } {
+export { TESTNET_BUILD };
+
+export function useChainNames(): { foreign: string; home: string; testnet: boolean } {
   const s = useContext(SetupContext);
-  if (!s) return { foreign: "the foreign chain", home: "the home chain" };
+  if (!s) return { foreign: "the foreign chain", home: "the home chain", testnet: TESTNET_BUILD };
   const c = s.data.chains();
-  return { foreign: c.foreign.name, home: c.home.name };
+  return { foreign: c.foreign.name, home: c.home.name, testnet: c.foreign.network === "testnet" };
+}
+
+/** The block explorer link of a chain's transactions, or null (the devnet, or outside the setup). */
+export function useExplorer(chain: "foreign" | "home"): ((hash: `0x${string}`) => string) | null {
+  const s = useContext(SetupContext);
+  return s ? s.data.chains()[chain].explorerTxUrl : null;
 }
 
 export function useRoute(): RouteConfig {

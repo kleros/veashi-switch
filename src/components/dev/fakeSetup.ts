@@ -17,6 +17,7 @@ import type {
   SwitchData,
   SwitchRequest,
 } from "../../data";
+import { describeRevert } from "../../data/errors";
 import type { AppSetup } from "../setup";
 
 const DEV: Address = "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"; // anvil's published account 0
@@ -24,6 +25,8 @@ const QS = new URLSearchParams(location.search);
 const STEP_MS = Number(QS.get("step") ?? 1500);
 const QUOTE_MS = Number(QS.get("quote") ?? 80); // slow quotes make the "Updating cost…" window visible
 const STALL = QS.get("stall") === "1"; // the dispute leg ends in a paused delivery after the first report
+const CREATION_FAIL = QS.get("creation") === "fail"; // the court cannot open the case: the creation window runs out
+const WINDOW_MS = Number(QS.get("window") ?? 4000); // the creation window, from the delivery
 const BULB_DELAY = Number(QS.get("bulbDelay") ?? 0); // ms the bulb read takes
 const BULB_FAIL = QS.get("bulbFail") === "1"; // the bulb read is rejected
 // e2e switches: `window.__veashi = { outage: true }` makes request() reject, `{ quoteFail: true }` makes quote() reject
@@ -59,10 +62,15 @@ const hash = (): Hex =>
   `0x${Array.from(crypto.getRandomValues(new Uint8Array(32)), (b) => b.toString(16).padStart(2, "0")).join("")}`;
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
+// The plain-language reasons the devnet data layer gives for the same reverts (src/data/errors.ts).
+const PAUSE_TEXT = describeRevert({ errorName: "ThresholdBelowMinimum", args: [3n] })!;
+const BLOCKER_TEXT = describeRevert({ errorName: "InsufficientFunds", args: [eth(0.1), 0n] }, { homeChainName: "Arbitrum-like" })!;
+
 export function fakeSetup(): AppSetup {
   const env: DevnetEnv = {
-    foreign: { chainId: foreign.id, rpcUrl: "http://127.0.0.1:1", name: foreign.name },
-    home: { chainId: home.id, rpcUrl: "http://127.0.0.1:2", name: home.name },
+    kind: "devnet",
+    foreign: { chainId: foreign.id, rpcUrl: "http://127.0.0.1:1", name: foreign.name, explorerUrl: null, fromBlock: 0n },
+    home: { chainId: home.id, rpcUrl: "http://127.0.0.1:2", name: home.name, explorerUrl: null, fromBlock: 0n },
     addresses: { foreign: {}, home: {} },
     testWallet: true,
   };
@@ -115,22 +123,27 @@ export function fakeSetup(): AppSetup {
       reports,
       txs: [
         tx("submitted", "foreign", "requestSwitch"),
-        tx("dispute-received", "home", "executeMessages"),
+        tx("dispute-delivered", "home", "executeMessages"),
+        tx("dispute-received", "home", "createReceivedDispute"),
         tx("ruled", "home", "executeRuling"),
-        tx("switched", "foreign", "executeMessages"),
+        tx("ruling-relaying", "foreign", "executeMessages"),
+        tx("switched", "foreign", "executeRuling"),
       ],
       error: null,
+      creation: { state: "created", deliveredAt: Date.now() - 60_000, failableAt: Date.now() + 60_000, blocker: null },
+      refund: null,
+      actions: [],
       updatedAt: Date.now(),
     });
     bulbs.set(DEV.toLowerCase(), ruling === 1);
   }
 
-  const relay = async (id: bigint, leg: "dispute" | "ruling") => {
+  const relay = async (id: bigint, leg: "dispute" | "ruling", stage: StageTx["stage"] = leg === "dispute" ? "dispute-relaying" : "ruling-relaying") => {
     const r = requests.get(id)!;
     const { oracleIds, threshold } = r.selection;
     update(id, (x) => ({
       ...x,
-      stage: leg === "dispute" ? "dispute-relaying" : "ruling-relaying",
+      stage,
       reports: [...x.reports, ...oracleIds.map((o) => ({ oracleId: o, leg, status: "pending" as const }))],
     }));
     // fastest first: LayerZero, deBridge, CCIP, Vea
@@ -141,8 +154,7 @@ export function fakeSetup(): AppSetup {
         update(id, (x) => ({
           ...x,
           stage: "failed",
-          error:
-            "The court side of this local devnet lacks local ETH to open the case. The local operator needs to fund it.\nThe HomeGateway on Arbitrum-like needs 0.1 ETH and holds 0 ETH; the case is created as soon as it is funded.",
+          error: PAUSE_TEXT,
         }));
         return false;
       }
@@ -159,19 +171,56 @@ export function fakeSetup(): AppSetup {
   const run = async (id: bigint) => {
     await sleep(STEP_MS / 2);
     if (!(await relay(id, "dispute"))) return;
+    const deliveredAt = Date.now();
+    update(id, (x) => ({
+      ...x,
+      stage: "dispute-delivered",
+      creation: { state: "waiting", deliveredAt, failableAt: deliveredAt + WINDOW_MS, blocker: null },
+      txs: [...x.txs, tx("dispute-delivered", "home", "executeMessages")],
+    }));
+    await sleep(STEP_MS / 2);
+    if (CREATION_FAIL) {
+      update(id, (x) => ({ ...x, creation: x.creation && { ...x.creation, blocker: BLOCKER_TEXT } }));
+      await sleep(Math.max(0, deliveredAt + WINDOW_MS - Date.now()));
+      update(id, (x) => (x.stage === "dispute-delivered" ? { ...x, actions: ["send-failure"] } : x));
+      return;
+    }
     const hid = nextHome++;
     update(id, (x) => ({
       ...x,
       stage: "dispute-received",
       homeDisputeId: hid,
-      txs: [...x.txs, tx("dispute-received", "home", "executeMessages")],
+      creation: x.creation && { ...x.creation, state: "created" },
+      txs: [...x.txs, tx("dispute-received", "home", "createReceivedDispute")],
+    }));
+  };
+
+  /** The creation-failure path after the window: the failure goes back, the request closes, the refund is due. */
+  const fail = async (id: bigint) => {
+    const r = requests.get(id)!;
+    update(id, (x) => ({
+      ...x,
+      stage: "creation-failed",
+      actions: [],
+      creation: x.creation && { ...x.creation, state: "failed", blocker: null },
+      txs: [...x.txs, tx("creation-failed", "home", "sendCreationFailure")],
+    }));
+    await sleep(STEP_MS / 2);
+    await relay(id, "ruling", "failure-relaying");
+    const jurorFees = r.paid.token === "usdc" ? (JUROR_FEES * USDC_PER_ETH) / 10n ** 12n : JUROR_FEES;
+    update(id, (x) => ({
+      ...x,
+      stage: "closed",
+      refund: { token: x.paid.token, amount: jurorFees, claimed: null },
+      actions: ["claim-refund"],
+      txs: [...x.txs, tx("failure-relaying", "foreign", "executeMessages"), tx("closed", "foreign", "executeRuling")],
     }));
   };
 
   const data: SwitchData = {
     chains: () => ({
-      foreign: { key: "foreign", id: foreign.id, name: foreign.name, rpcUrl: env.foreign.rpcUrl, explorerTxUrl: null },
-      home: { key: "home", id: home.id, name: home.name, rpcUrl: env.home.rpcUrl, explorerTxUrl: null },
+      foreign: { key: "foreign", network: "devnet", id: foreign.id, name: foreign.name, rpcUrl: env.foreign.rpcUrl, explorerTxUrl: null },
+      home: { key: "home", network: "devnet", id: home.id, name: home.name, rpcUrl: env.home.rpcUrl, explorerTxUrl: null },
     }),
     oracles: async () => ORACLES,
     defaultSelection: async () => DEFAULT,
@@ -234,6 +283,9 @@ export function fakeSetup(): AppSetup {
         reports: [],
         txs: [tx("submitted", "foreign", token === "usdc" ? "requestSwitchWithToken" : "requestSwitch")],
         error: null,
+        creation: null,
+        refund: null,
+        actions: [],
         updatedAt: Date.now(),
       };
       requests.set(id, r);
@@ -251,6 +303,26 @@ export function fakeSetup(): AppSetup {
       watchers.get(id)!.add(cb);
       return () => watchers.get(id)?.delete(cb);
     },
+    async act(id, action) {
+      const r = requests.get(id);
+      if (!r || !r.actions.includes(action)) throw new Error("Cancelled before sending. This step is no longer due: refresh the status.");
+      await sleep(600);
+      if (action === "send-failure") {
+        void fail(id);
+        return hash();
+      }
+      if (action === "claim-refund") {
+        const t = tx("closed", "foreign", "claimRefund");
+        update(id, (x) => ({
+          ...x,
+          actions: [],
+          refund: x.refund && { ...x.refund, claimed: { tx: t.hash, beneficiary: x.owner } },
+          txs: [...x.txs, t],
+        }));
+        return t.hash;
+      }
+      throw new Error(`The fake setup does not run ${action}: the relay service does it.`);
+    },
     devnet: {
       async rule(id, ruling) {
         const r = requests.get(id);
@@ -265,7 +337,7 @@ export function fakeSetup(): AppSetup {
           update(id, (x) => ({
             ...x,
             stage: "switched",
-            txs: [...x.txs, tx("switched", "foreign", "executeMessages")],
+            txs: [...x.txs, tx("ruling-relaying", "foreign", "executeMessages"), tx("switched", "foreign", "executeRuling")],
           }));
           bulbs.set(r.owner.toLowerCase(), ruling === 1);
         })();

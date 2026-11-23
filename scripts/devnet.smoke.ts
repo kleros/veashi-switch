@@ -10,7 +10,7 @@ import { createSwitchData, createWagmiConfig, type RequestStage, type SwitchData
 import { foreignGatewayAbi, lightbulbAbi } from "../src/data/abi";
 import { DEV_ACCOUNT, devnetChains } from "../src/data/chain";
 import { parseDevnetEnv, type ParsedDevnetEnv } from "../src/data/env";
-import { STAGES } from "../src/data/lifecycle";
+import { FAILURE_STAGES, STAGES } from "../src/data/lifecycle";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const STAGE_TIMEOUT_MS = 120_000;
@@ -41,12 +41,24 @@ function watchUntil(disputeId: bigint, until: RequestStage): Promise<SwitchReque
   });
 }
 
-/** Stages appear in lifecycle order, each at least once, from `from` to `to`. */
-function expectStagesInOrder(seen: SwitchRequest[], from: RequestStage, to: RequestStage) {
-  const order = seen.map((r) => STAGES.indexOf(r.stage as (typeof STAGES)[number]));
+/** Stages appear in lifecycle order, each at least once, from `from` to `to`, along one path. */
+function expectStagesInOrder(seen: SwitchRequest[], from: RequestStage, to: RequestStage, path = STAGES) {
+  const order = seen.map((r) => path.indexOf(r.stage as (typeof path)[number]));
   expect(order.every((v, i) => i === 0 || v >= order[i - 1])).toBe(true);
-  const expected = STAGES.slice(STAGES.indexOf(from as never), STAGES.indexOf(to as never) + 1);
+  const expected = path.slice(path.indexOf(from as never), path.indexOf(to as never) + 1);
   expect([...new Set(seen.map((r) => r.stage))]).toEqual(expected);
+}
+
+/** Polls the request until `ok` holds. */
+async function until(disputeId: bigint, ok: (r: SwitchRequest) => boolean, what: string): Promise<SwitchRequest> {
+  const deadline = Date.now() + STAGE_TIMEOUT_MS;
+  let last: SwitchRequest | null = null;
+  while (Date.now() < deadline) {
+    last = await data.request(disputeId);
+    if (last && ok(last)) return last;
+    await new Promise((resolve) => setTimeout(resolve, 250));
+  }
+  throw new Error(`dispute #${disputeId} at ${last?.stage ?? "nothing"} never reached: ${what}`);
 }
 
 const reported = (r: SwitchRequest, leg: "dispute" | "ruling") =>
@@ -119,7 +131,11 @@ describe("devnet smoke", () => {
     expect(toCourt.some((r) => r.stage === "dispute-relaying" && reported(r, "dispute") === 1)).toBe(true);
     const received = toCourt.at(-1)!;
     expect(received.homeDisputeId).not.toBeNull();
-    expect(received.txs.map((t) => t.label)).toContain("executeMessages");
+    expect(received.creation?.state).toBe("created");
+    // Delivered by Yaru, then created on the court by the keeper: two transactions on the home chain.
+    expect(received.txs.filter((t) => t.chain === "home").map((t) => t.label)).toEqual(
+      expect.arrayContaining(["executeMessages", "createReceivedDispute"]),
+    );
 
     await expect(data.devnet!.rule(request.disputeId, 1)).resolves.toMatch(/^0x[0-9a-f]{64}$/);
     const back = await watchUntil(request.disputeId, "switched");
@@ -128,6 +144,8 @@ describe("devnet smoke", () => {
     expect(done.ruling).toBe(1);
     expect(reported(done, "ruling")).toBeGreaterThanOrEqual(2);
     expect(new Set(done.txs.map((t) => t.stage))).toEqual(new Set(STAGES)); // each stage has its transaction(s)
+    expect(done.txs.at(-1)).toMatchObject({ stage: "switched", chain: "foreign", label: "executeRuling" });
+    expect(done.actions).toEqual([]);
     expect(await data.bulbIsOn(DEV_ACCOUNT)).toBe(true);
     await expect(data.devnet!.rule(request.disputeId, 2)).rejects.toThrow(/already has a ruling/);
   });
@@ -153,29 +171,26 @@ describe("devnet smoke", () => {
     expect(mine.every((r) => r.stage === "switched")).toBe(true);
   });
 
-  it("failures: an unfunded HomeGateway fails the request with the reason, then recovers; an unfunded reporter reverts", async () => {
+  it("failures: an unfunded HomeGateway keeps a delivered dispute waiting with the reason, then the keeper creates it; an unfunded reporter reverts", async () => {
     const chains = devnetChains(env);
     const home = createPublicClient({ chain: chains.home, transport: http(env.home.rpcUrl), pollingInterval: 100 });
     const foreign = createPublicClient({ chain: chains.foreign, transport: http(env.foreign.rpcUrl), pollingInterval: 100 });
     const homeDev = createWalletClient({ chain: chains.home, transport: http(env.home.rpcUrl), account: DEV_ACCOUNT });
     const foreignDev = createWalletClient({ chain: chains.foreign, transport: http(env.foreign.rpcUrl), account: DEV_ACCOUNT });
     const homeGateway = env.addresses.home.HomeGateway;
-    const gatewayAbi = parseAbi(["function withdraw(address _to, uint256 _amount)"]);
     const reporterAbi = parseAbi(["function withdraw(uint256 _amount)"]);
 
-    // The governor empties the HomeGateway: the dispute leg cannot create the dispute on the court.
-    const funds = await home.getBalance({ address: homeGateway });
-    await home.waitForTransactionReceipt({
-      hash: await homeDev.writeContract({ address: homeGateway, abi: gatewayAbi, functionName: "withdraw", args: [DEV_ACCOUNT, funds] }),
-    });
+    // The governor empties the HomeGateway: the delivery still goes through, the court cannot open the case.
+    const funds = await drainHomeGateway(home, homeDev);
     const request = await data.requestSwitch({ oracleIds: [0], threshold: 1 }, "native");
-    const failed = await watchUntil(request.disputeId, "failed").catch((e: Error) => e.message);
-    expect(String(failed)).toMatch(/The court side of this local devnet lacks local ETH to open the case\. The local operator needs to fund it\.\n.*HomeGateway on Arbitrum-like needs .* ETH and holds .* ETH/s);
-    const current = await data.request(request.disputeId);
-    expect(current?.stage).toBe("failed");
-    expect(current?.reports.find((r) => r.leg === "dispute")?.status).toBe("reported");
+    const waiting = await until(request.disputeId, (r) => r.creation?.state === "waiting" && r.creation.blocker !== null, "a creation blocker");
+    expect(waiting.stage).toBe("dispute-delivered");
+    expect(waiting.creation!.blocker).toMatch(/lacks local ETH to open the case.*\n.*HomeGateway on Arbitrum-like needs .* ETH and holds 0 ETH/s);
+    expect(waiting.actions).not.toContain("create-dispute");
+    expect(waiting.homeDisputeId).toBeNull();
+    expect(waiting.reports.find((r) => r.leg === "dispute")?.status).toBe("reported");
 
-    // Funded again, the relayer's retry delivers it.
+    // Funded again, the keeper's retry creates it.
     await home.waitForTransactionReceipt({ hash: await homeDev.sendTransaction({ to: homeGateway, value: funds }) });
     const recovered = await watchUntil(request.disputeId, "dispute-received");
     expect(recovered.at(-1)!.homeDisputeId).not.toBeNull();
@@ -191,4 +206,73 @@ describe("devnet smoke", () => {
     );
     await foreign.waitForTransactionReceipt({ hash: await foreignDev.sendTransaction({ to: vea, value: balance }) });
   });
+
+  it("creation failure: not created within the window, the failure goes back, the request closes and the juror fees are refunded", async () => {
+    const chains = devnetChains(env);
+    const home = createPublicClient({ chain: chains.home, transport: http(env.home.rpcUrl), pollingInterval: 100 });
+    const foreign = createPublicClient({ chain: chains.foreign, transport: http(env.foreign.rpcUrl), pollingInterval: 100 });
+    const homeDev = createWalletClient({ chain: chains.home, transport: http(env.home.rpcUrl), account: DEV_ACCOUNT });
+    const bulbBefore = await data.bulbIsOn(DEV_ACCOUNT);
+    const funds = await drainHomeGateway(home, homeDev);
+    try {
+      const selection = { oracleIds: [0, 2], threshold: 2 };
+      const quote = await data.quote(selection, "native");
+      const request = await data.requestSwitch(selection, "native");
+      const waiting = await until(request.disputeId, (r) => r.creation?.state === "waiting", "delivered");
+      expect(waiting.actions).not.toContain("send-failure"); // the window is still open
+      await expect(data.act(request.disputeId, "send-failure")).rejects.toThrow(/^Cancelled before sending\. This step is no longer due/);
+
+      const due = await until(request.disputeId, (r) => r.actions.includes("send-failure"), "the end of the creation window");
+      expect(Date.now()).toBeGreaterThanOrEqual(due.creation!.failableAt);
+      await expect(data.act(request.disputeId, "send-failure")).resolves.toMatch(/^0x[0-9a-f]{64}$/);
+
+      // The failure returns over the same two oracles, the keeper executes it: closed, bulb unchanged, refund due.
+      const back = await watchUntil(request.disputeId, "closed");
+      expectStagesInOrder(back, "submitted", "closed", FAILURE_STAGES);
+      expect(back.some((r) => r.stage === "failure-relaying" && reported(r, "ruling") === 1)).toBe(true);
+      const closed = back.at(-1)!;
+      expect(closed.creation?.state).toBe("failed");
+      expect(closed.homeDisputeId).toBeNull();
+      expect(closed.ruling).toBe(0);
+      expect(new Set(closed.txs.map((t) => t.stage))).toEqual(new Set(FAILURE_STAGES));
+      expect(closed.txs.find((t) => t.label === "sendCreationFailure")).toMatchObject({ stage: "creation-failed", chain: "home" });
+      const bridging = quote.bridging.reduce((sum, b) => sum + b.amount, 0n);
+      expect(closed.refund).toEqual({ token: "native", amount: quote.total - bridging, claimed: null });
+      expect(closed.actions).toEqual(["claim-refund"]);
+      expect(await data.bulbIsOn(DEV_ACCOUNT)).toBe(bulbBefore);
+
+      // Anyone can claim; the juror fees go to the requester.
+      const before = await foreign.getBalance({ address: DEV_ACCOUNT });
+      const claimTx = await data.act(request.disputeId, "claim-refund");
+      const receipt = await foreign.getTransactionReceipt({ hash: claimTx });
+      const after = await foreign.getBalance({ address: DEV_ACCOUNT });
+      expect(after - before + receipt.gasUsed * receipt.effectiveGasPrice).toBe(quote.total - bridging);
+      const refunded = await until(request.disputeId, (r) => r.refund?.claimed != null, "the refund claim");
+      expect(refunded.refund!.claimed).toEqual({ tx: claimTx, beneficiary: DEV_ACCOUNT });
+      expect(refunded.actions).toEqual([]);
+      expect(refunded.txs.at(-1)).toMatchObject({ stage: "closed", label: "claimRefund", hash: claimTx });
+      await expect(data.act(request.disputeId, "claim-refund")).rejects.toThrow(/no longer due/);
+    } finally {
+      await home.waitForTransactionReceipt({ hash: await homeDev.sendTransaction({ to: env.addresses.home.HomeGateway, value: funds }) });
+    }
+  });
 });
+
+/** The governor withdraws the HomeGateway's whole balance; returns it so the caller can fund it back. */
+async function drainHomeGateway(
+  home: ReturnType<typeof createPublicClient>,
+  homeDev: ReturnType<typeof createWalletClient>,
+): Promise<bigint> {
+  const homeGateway = env.addresses.home.HomeGateway;
+  const funds = await home.getBalance({ address: homeGateway });
+  const hash = await homeDev.writeContract({
+    address: homeGateway,
+    abi: parseAbi(["function withdraw(address _to, uint256 _amount)"]),
+    functionName: "withdraw",
+    args: [DEV_ACCOUNT, funds],
+    chain: homeDev.chain,
+    account: DEV_ACCOUNT,
+  });
+  await home.waitForTransactionReceipt({ hash });
+  return funds;
+}

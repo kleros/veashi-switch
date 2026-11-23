@@ -1,6 +1,6 @@
 import React, { useEffect, useRef } from "react";
 import styled from "styled-components";
-import { HELP_NOTE, HELP_STAGES, HELP_TERMS } from "./copy";
+import { helpNote, helpStages, helpTerms } from "./copy";
 import { Icon, IconButton } from "./ui";
 
 const Dialog = styled.dialog`
@@ -79,8 +79,9 @@ const Note = styled.p`
 export const HelpDialog: React.FC<{
   open: boolean;
   onClose: () => void;
-  names?: { foreign: string; home: string };
-}> = ({ open, onClose }) => {
+  names?: { foreign: string; home: string; testnet?: boolean };
+}> = ({ open, onClose, names }) => {
+  const network = names?.testnet ? "testnet" : "devnet";
   const ref = useRef<HTMLDialogElement>(null);
   const opener = useRef<HTMLElement | null>(null);
   useEffect(() => {
@@ -120,7 +121,7 @@ export const HelpDialog: React.FC<{
           </IconButton>
         </Top>
         <Steps data-testid="help-stages">
-          {HELP_STAGES.map((st) => (
+          {helpStages(network).map((st) => (
             <li key={st.lead}>
               <b>{st.lead}</b> {st.rest}
             </li>
@@ -128,14 +129,14 @@ export const HelpDialog: React.FC<{
         </Steps>
         <h3>Words on these pages</h3>
         <Terms data-testid="help-terms">
-          {HELP_TERMS.map((t) => (
+          {helpTerms(network).map((t) => (
             <React.Fragment key={t.term}>
               <dt>{t.term}</dt>
               <dd>{t.text}</dd>
             </React.Fragment>
           ))}
         </Terms>
-        <Note>{HELP_NOTE}</Note>
+        <Note>{helpNote(network)}</Note>
       </In>
     </Dialog>
   );

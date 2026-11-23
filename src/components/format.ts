@@ -1,5 +1,6 @@
 import { formatUnits } from "viem";
 import type { Hex, RequestStage } from "../data";
+import { stageIndex as lifecycleStageIndex } from "../data/lifecycle";
 
 /** Digits after the point needed to show `amount` exactly (trailing zeros dropped). */
 function exactFraction(amount: bigint, decimals: number): string {
@@ -32,16 +33,10 @@ export const shortHash = (h: string) => (h.length > 12 ? `${h.slice(0, 6)}…${h
 
 export const shortAddress = (a: string) => `${a.slice(0, 6)}…${a.slice(-4)}`;
 
-export const STAGES: Exclude<RequestStage, "failed">[] = [
-  "submitted",
-  "dispute-relaying",
-  "dispute-received",
-  "ruled",
-  "ruling-relaying",
-  "switched",
-];
+export { STAGES } from "../data/lifecycle";
 
-export const stageIndex = (s: RequestStage) => STAGES.indexOf(s as Exclude<RequestStage, "failed">);
+/** The step of a stage, 0 to 6, on either path; -1 for a paused request. */
+export const stageIndex = (s: RequestStage) => (s === "failed" ? -1 : lifecycleStageIndex(s));
 
 export const rulingName = (r: 0 | 1 | 2) => (r === 1 ? "On" : r === 2 ? "Off" : "not decided yet");
 

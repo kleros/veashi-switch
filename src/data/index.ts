@@ -1,16 +1,19 @@
 // The data module the pages read and write through (its types are in types.ts); the implementation lives in the
 // sibling files.
 import { createConfig, http, injected, mock, type Config, type CreateConnectorFn } from "wagmi";
-import { createChainSwitchData, DEV_ACCOUNT, devnetChains } from "./chain";
-import { parseDevnetEnv } from "./env";
+import { createChainSwitchData, DEV_ACCOUNT } from "./chain";
+import { parseDevnetEnv, type NetworkKind } from "./env";
+import { viemChains } from "./networks";
 import type { Address, SwitchData } from "./types";
 
 export * from "./types";
 
-/** What scripts/devnet.sh writes to public/devnet.json after deploying, and the app fetches at startup. */
+/** The chain-backed config, as parsed by env.ts: public/devnet.json on the devnet, config/testnet.json on a testnet. */
 export interface DevnetEnv {
-  foreign: { chainId: number; rpcUrl: string; name: string };
-  home: { chainId: number; rpcUrl: string; name: string };
+  // parseDevnetEnv fills these in for a devnet.json without them: kind "devnet", explorerUrl null, fromBlock 0n.
+  kind: NetworkKind;
+  foreign: { chainId: number; rpcUrl: string; name: string; explorerUrl: string | null; fromBlock: bigint };
+  home: { chainId: number; rpcUrl: string; name: string; explorerUrl: string | null; fromBlock: bigint };
   addresses: {
     foreign: Record<string, Address>; // ForeignGateway, GatewayLightbulb, USDC, Yaho, Yaru, adapters...
     home: Record<string, Address>; // HomeGateway, KlerosCoreRuler, Yaho, Yaru, adapters...
@@ -19,7 +22,7 @@ export interface DevnetEnv {
 }
 
 /** Fetches /devnet.json; rejects with a plain-language error when the devnet is not running. */
-export async function loadDevnetEnv(): Promise<DevnetEnv> {
+async function loadDevnetJson(): Promise<DevnetEnv> {
   let response: Response;
   try {
     response = await fetch("/devnet.json", { cache: "no-store" });
@@ -38,18 +41,44 @@ export async function loadDevnetEnv(): Promise<DevnetEnv> {
   return parseDevnetEnv(json);
 }
 
-/** wagmi config for the two devnet chains: the injected connector, plus the test connector when env.testWallet. */
+/** Replaces a chain's rpcUrl with an override from the build environment; env.ts still checks it is https. */
+function withRpcOverride(chain: unknown, rpcUrl: string | undefined): unknown {
+  if (!rpcUrl || typeof chain !== "object" || chain === null) return chain;
+  return { ...chain, rpcUrl };
+}
+
+/** The testnet config bundled at build time (config/testnet.json), with optional RPC overrides from the build. */
+async function loadTestnetJson(): Promise<DevnetEnv> {
+  // Imported on demand so devnet builds do not carry it.
+  const { default: json } = await import("../../config/testnet.json");
+  return parseDevnetEnv({
+    ...json,
+    foreign: withRpcOverride(json.foreign, import.meta.env.VITE_VEASHI_FOREIGN_RPC),
+    home: withRpcOverride(json.home, import.meta.env.VITE_VEASHI_HOME_RPC),
+  });
+}
+
+/** Loads the network config the build targets (VITE_VEASHI_NETWORK); rejects in plain language when unusable. */
+export function loadEnv(): Promise<DevnetEnv> {
+  return import.meta.env.VITE_VEASHI_NETWORK === "testnet" ? loadTestnetJson() : loadDevnetJson();
+}
+
+/** Former name of loadEnv. */
+export const loadDevnetEnv = loadEnv;
+
+/** wagmi config for the two chains: the injected connector, plus the test connector when env.testWallet. */
 export function createWagmiConfig(env: DevnetEnv): Config {
-  const chains = devnetChains(parseDevnetEnv(env));
+  const parsed = parseDevnetEnv(env);
+  const chains = viemChains(parsed);
   const connectors: CreateConnectorFn[] = [injected({ shimDisconnect: true })];
   // The anvil dev account, unlocked on the devnet: the mock connector forwards eth_sendTransaction to anvil.
-  if (env.testWallet) connectors.push(mock({ accounts: [DEV_ACCOUNT] }));
+  if (parsed.testWallet) connectors.push(mock({ accounts: [DEV_ACCOUNT] }));
   return createConfig({
     chains: [chains.foreign, chains.home],
     connectors,
     transports: {
-      [chains.foreign.id]: http(env.foreign.rpcUrl),
-      [chains.home.id]: http(env.home.rpcUrl),
+      [chains.foreign.id]: http(parsed.foreign.rpcUrl),
+      [chains.home.id]: http(parsed.home.rpcUrl),
     },
   });
 }

@@ -97,7 +97,7 @@ const Details = styled.dl`
   }
 `;
 
-/** "1 · Network route": the one fixed local route, the local-only boundary and the wallet state. */
+/** "1 · Network route": the one fixed route (local devnet or public testnets), its boundary and the wallet state. */
 export const RouteSection: React.FC<{
   gate: WalletGate;
   unavailable: string | null;
@@ -112,20 +112,29 @@ export const RouteSection: React.FC<{
           <h2 id="route-h" data-step-heading>
             Network route
           </h2>
-          <p>The ruling returns to {route.from.name}. Only this local route is available.</p>
+          <p>
+            The ruling returns to {route.from.name}. Only this {route.testnet ? "testnet" : "local"} route is available.
+          </p>
         </div>
-        <Badge data-testid="local-badge">
-          Local devnet only
-          <small>No public networks or testnets</small>
-        </Badge>
+        {route.testnet ? (
+          <Badge data-testid="local-badge">
+            Public testnets only
+            <small>No mainnet. Test tokens have no value</small>
+          </Badge>
+        ) : (
+          <Badge data-testid="local-badge">
+            Local devnet only
+            <small>No public networks or testnets</small>
+          </Badge>
+        )}
       </PanelHead>
       <Cards>
         <Card $c="#0052ff" data-testid="chain-from">
-          <span className="label">Request from:</span> <span className="value">{route.from.name} · Local devnet</span>
+          <span className="label">Request from:</span> <span className="value">{route.from.name} · {route.networkLabel}</span>
         </Card>
         <Arrow aria-hidden="true">→</Arrow>
         <Card $c="#28a0f0" data-testid="chain-to">
-          <span className="label">Court on:</span> <span className="value">{route.to.name} · Local devnet</span>
+          <span className="label">Court on:</span> <span className="value">{route.to.name} · {route.networkLabel}</span>
         </Card>
       </Cards>
       <Disclosure summary="Network details" data-testid="network-details">

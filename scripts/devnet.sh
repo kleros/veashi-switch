@@ -7,6 +7,8 @@
 #   bash scripts/devnet.sh status   prints the recorded processes and whether they are alive.
 # Ports: VEASHI_FOREIGN_PORT / VEASHI_HOME_PORT (defaults 8645/8646, `auto` = free ports).
 # Relayer pace: VEASHI_RELAY_STEP_MS between oracle reports (default 1500).
+# Creation window: VEASHI_CREATION_TIMEOUT, seconds after a delivery before anyone can send a dispute's creation
+# failure back (default 60; the contract's own default is 7 days).
 # Only 127.0.0.1 is used and the only accounts are anvil's well-known dev accounts (unlocked by anvil).
 set -euo pipefail
 
@@ -192,10 +194,12 @@ cmd_start() {
 
   log "starting anvil: foreign chain $FOREIGN_CHAIN_ID on $foreign_rpc, home chain $HOME_CHAIN_ID on $home_rpc"
   # The literal `--port <n>` comes last so `pgrep -f "anvil.*--port <n>( |$)"` finds exactly this process.
-  start_detached anvil-foreign "anvil --host 127.0.0.1 --chain-id $FOREIGN_CHAIN_ID --port $foreign_port" \
-    anvil --host 127.0.0.1 --chain-id "$FOREIGN_CHAIN_ID" --port "$foreign_port"
-  start_detached anvil-home "anvil --host 127.0.0.1 --chain-id $HOME_CHAIN_ID --port $home_port" \
-    anvil --host 127.0.0.1 --chain-id "$HOME_CHAIN_ID" --port "$home_port"
+  # Mixed mining: a block for every transaction, as before, plus one per second while idle, so block time keeps up
+  # with the clock as on a real chain (HomeGateway's creation window is checked against it).
+  start_detached anvil-foreign "anvil --host 127.0.0.1 --chain-id $FOREIGN_CHAIN_ID --port $foreign_port --block-time 1 --mixed-mining" \
+    anvil --host 127.0.0.1 --chain-id "$FOREIGN_CHAIN_ID" --port "$foreign_port" --block-time 1 --mixed-mining
+  start_detached anvil-home "anvil --host 127.0.0.1 --chain-id $HOME_CHAIN_ID --port $home_port --block-time 1 --mixed-mining" \
+    anvil --host 127.0.0.1 --chain-id "$HOME_CHAIN_ID" --port "$home_port" --block-time 1 --mixed-mining
   wait_rpc anvil-foreign "$foreign_rpc"
   wait_rpc anvil-home "$home_rpc"
 

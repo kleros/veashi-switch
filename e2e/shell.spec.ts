@@ -20,10 +20,17 @@ test("[scenario:track-help] How it works opens from the shell, explains the stag
   await open.click();
   const dialog = page.getByRole("dialog", { name: "How a switch request works" });
   await expect(dialog).toBeVisible();
-  await expect(dialog.getByTestId("help-stages").locator("li")).toHaveCount(4);
-  for (const stage of ["Send the request.", "Oracles carry it to the court.", "The court decides.", "The decision comes back"])
+  await expect(dialog.getByTestId("help-stages").locator("li")).toHaveCount(6);
+  for (const stage of [
+    "Send the request.",
+    "Oracles carry it to the court.",
+    "The court opens the case.",
+    "The court decides.",
+    "The decision comes back",
+    "If the case cannot be opened in time,",
+  ])
     await expect(dialog).toContainText(stage);
-  for (const term of ["Oracle", "Agreement needed", "Automatic relay service", "Court case", "Request fee"])
+  for (const term of ["Oracle", "Agreement needed", "Automatic relay service", "Court case", "Creation window", "Refund", "Request fee"])
     await expect(dialog.getByTestId("help-terms").getByText(term, { exact: true })).toBeVisible();
   const text = await dialog.innerText();
   for (const re of [/keeper/i, /HomeGateway/i, /Higher is safer/i, /On \(1\)/i, /Off \(2\)/i, /You send one transaction/i, /Your part is done/i])
@@ -99,10 +106,10 @@ test("[scenario:track-mobile-bulb] at 375 px the bulb, the status and the next a
     expect(box.x + box.width).toBeLessThanOrEqual(375);
     expect(box.height).toBeGreaterThanOrEqual(44);
   }
-  // Progress defaults to Steps, a vertical list of the six stages; the SVG waits behind "Circuit".
+  // Progress defaults to Steps, a vertical list of the seven stages; the SVG waits behind "Circuit".
   await expect(page.getByTestId("toggle-steps")).toHaveAttribute("aria-pressed", "true");
   await expect(page.getByTestId("lifecycle-summary")).toBeVisible();
-  await expect(page.getByTestId("event-log").locator(":scope > li")).toHaveCount(6);
+  await expect(page.getByTestId("event-log").locator(":scope > li")).toHaveCount(7);
   await expect(page.getByTestId("circuit")).toHaveCount(0);
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(375);
 
@@ -171,11 +178,11 @@ test("layout at 375 px in dark and light, the circuit scrolls sideways, the bulb
 
 const escapeRe = (t: string) => t.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
-/** Each of the six stage titles appears once: as exact element text and as a whole phrase in the page text. */
+/** Each of the seven stage titles appears once: as exact element text and as a whole phrase in the page text. */
 async function expectStageTitlesOnce(page: import("@playwright/test").Page, label: string) {
   await showSteps(page);
   const titles = await page.getByTestId("stage-title").allTextContents();
-  expect(titles, `${label}: six stages`).toHaveLength(6);
+  expect(titles, `${label}: seven stages`).toHaveLength(7);
   const text = await page.evaluate(() => document.body.innerText);
   for (const t of titles) {
     await expect(page.getByText(t, { exact: true }), `${label}: "${t}" as element text`).toHaveCount(1);

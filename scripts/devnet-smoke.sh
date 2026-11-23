@@ -12,6 +12,8 @@ VITEST="$APP/node_modules/.bin/vitest"
 # Two runs on one host (two checkouts, a running e2e server) must not share ports: default to free ones.
 export VEASHI_FOREIGN_PORT="${VEASHI_FOREIGN_PORT:-auto}"
 export VEASHI_HOME_PORT="${VEASHI_HOME_PORT:-auto}"
+# A short creation window, so the creation-failure check does not wait a minute.
+export VEASHI_CREATION_TIMEOUT="${VEASHI_CREATION_TIMEOUT:-8}"
 
 CHILD=""
 STARTED=0

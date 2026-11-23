@@ -1,11 +1,22 @@
 import { describe, expect, it } from "vitest";
 import type { Oracle, RequestStage, StageTx, SwitchRequest } from "../data";
-import { requestModel, previewModel, NODE_TITLES, PREVIEW_NODE_TITLES } from "./circuitModel";
-import { AGREEMENT_HINT, FORBIDDEN_TEXT, HELP_NOTE, HELP_STAGES, HELP_TERMS, REQUEST_INTRO } from "./copy";
+import { describeRevert } from "../data/errors";
+import { requestModel, previewModel, FAILURE_NODE_TITLES, NODE_TITLES, PREVIEW_NODE_TITLES } from "./circuitModel";
+import {
+  AGREEMENT_HINT,
+  FORBIDDEN_TEXT,
+  helpNote,
+  helpStages,
+  helpTerms,
+  REQUEST_INTRO,
+  requestIntro,
+  type CopyNetwork,
+} from "./copy";
 import { sendFailure } from "./errors";
-import { logEntries, nowModel, pausedModel, STAGE_LABEL, txName } from "./trackModel";
+import { actionModels, logEntries, nowModel, pausedModel, STAGE_LABEL, txName } from "./trackModel";
 
 const names = { foreign: "Base-like", home: "Arbitrum-like" };
+const testnetNames = { foreign: "Base Sepolia", home: "Arbitrum Sepolia", testnet: true };
 const oracles: Oracle[] = ["Vea", "CCIP", "LayerZero"].map((name, id) => ({
   id,
   name,
@@ -15,14 +26,24 @@ const oracles: Oracle[] = ["Vea", "CCIP", "LayerZero"].map((name, id) => ({
 }));
 const tx = (stage: StageTx["stage"], n: number): StageTx => ({
   stage,
-  chain: stage === "submitted" || stage === "switched" ? "foreign" : "home",
+  chain: stage === "submitted" || stage === "switched" || stage === "closed" ? "foreign" : "home",
   label: "requestSwitch",
   hash: `0x${n.toString(16).padStart(64, "0")}`,
 });
-const STAGES: RequestStage[] = ["submitted", "dispute-relaying", "dispute-received", "ruled", "ruling-relaying", "switched", "failed"];
+const SUCCESS: RequestStage[] = ["submitted", "dispute-relaying", "dispute-delivered", "dispute-received", "ruled", "ruling-relaying", "switched"];
+const FAILURE: RequestStage[] = ["creation-failed", "failure-relaying", "closed"];
+const STAGES: RequestStage[] = [...SUCCESS, ...FAILURE, "failed"];
+// A paused delivery: a plain first paragraph that names the cause and the action, then the technical detail.
+const PAUSE = "The court side refuses the delivery. Its operator needs to fix that.\nThe HomeGateway on Arbitrum-like reverted with UnexpectedAdapters.";
+const BLOCKER = describeRevert({ errorName: "InsufficientFunds", args: [10n ** 17n, 0n] }, { homeChainName: "Arbitrum-like" })!;
+const TESTNET_BLOCKER = describeRevert(
+  { errorName: "InsufficientFunds", args: [10n ** 17n, 0n] },
+  { homeChainName: "Arbitrum Sepolia", network: "testnet" },
+)!;
 
-function req(stage: RequestStage): SwitchRequest {
+function req(stage: RequestStage, over: Partial<SwitchRequest> = {}): SwitchRequest {
   const past = (s: RequestStage[]) => s.includes(stage);
+  const failurePath = past(FAILURE);
   return {
     disputeId: 7n,
     homeDisputeId: past(["dispute-received", "ruled", "ruling-relaying", "switched"]) ? 3n : null,
@@ -35,29 +56,58 @@ function req(stage: RequestStage): SwitchRequest {
       { oracleId: 0, leg: "dispute", status: "reported" },
       { oracleId: 1, leg: "dispute", status: stage === "dispute-relaying" ? "pending" : "reported" },
     ],
-    txs: [tx("submitted", 1)],
-    error: stage === "failed" ? "The court side of this local devnet lacks local ETH to open the case. The local operator needs to fund it.\nThe HomeGateway on Arbitrum-like needs 0.1 ETH and holds 0 ETH; the case is created as soon as it is funded." : null,
+    txs: [tx("submitted", 1), ...(failurePath ? [tx("dispute-delivered", 2), tx("creation-failed", 3)] : [])],
+    error: stage === "failed" ? PAUSE : null,
+    creation:
+      past(["dispute-delivered", "dispute-received", "ruled", "ruling-relaying", "switched"]) || failurePath
+        ? { state: stage === "dispute-delivered" ? "waiting" : failurePath ? "failed" : "created", deliveredAt: 0, failableAt: 60_000, blocker: null }
+        : null,
+    refund: stage === "closed" ? { token: "native", amount: 2n, claimed: null } : null,
+    actions: stage === "closed" ? ["claim-refund"] : [],
     updatedAt: 0,
+    ...over,
   };
 }
 
+/** The other situations a page can show: a blocked or expired creation window, a claimed refund, a paused failure leg. */
+const variants = (blocker = BLOCKER): SwitchRequest[] => {
+  const waiting = req("dispute-delivered");
+  return [
+    { ...waiting, creation: { ...waiting.creation!, blocker } },
+    { ...waiting, creation: { ...waiting.creation!, blocker }, actions: ["send-failure"] },
+    { ...waiting, actions: ["create-dispute", "send-failure"] },
+    req("dispute-relaying", { actions: ["deliver"] }),
+    req("ruling-relaying", { actions: ["deliver-back"] }),
+    req("ruling-relaying", { actions: ["execute-ruling"] }),
+    req("failure-relaying", { actions: ["execute-ruling"] }),
+    req("closed", { refund: { token: "native", amount: 2n, claimed: { tx: tx("closed", 9).hash, beneficiary: "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266" } }, actions: [] }),
+    req("failed", { txs: [tx("submitted", 1), tx("dispute-delivered", 2), tx("creation-failed", 3)] }),
+  ];
+};
+
 const allText = (): string[] => {
-  const out: string[] = [REQUEST_INTRO, AGREEMENT_HINT, HELP_NOTE, ...Object.values(STAGE_LABEL), ...Object.values(NODE_TITLES), ...Object.values(PREVIEW_NODE_TITLES)];
-  for (const h of HELP_STAGES) out.push(h.lead, h.rest);
-  for (const t of HELP_TERMS) out.push(t.term, t.text);
-  for (const stage of STAGES) {
-    const r = req(stage);
-    for (const canSimulate of [true, false]) {
-      const n = nowModel(r, oracles, names, { canSimulate });
-      out.push(n.title, n.body, n.statusText, n.next, n.counts ?? "");
-    }
-    for (const e of logEntries(r, oracles, names)) out.push(e.title);
-    const m = requestModel(r, oracles, names, { kind: "known", on: true });
-    out.push(...m.bulbLabel, m.dispute.caption, m.ruling.caption, ...Object.values(m.sub));
-    out.push(txName(tx("ruled", 1)));
-    if (stage === "failed") {
-      const p = pausedModel(r, names);
-      out.push(p.title, p.lastStep, p.message, p.operatorAction, p.warning);
+  const out: string[] = [AGREEMENT_HINT, ...Object.values(STAGE_LABEL), ...Object.values(NODE_TITLES), ...Object.values(FAILURE_NODE_TITLES), ...Object.values(PREVIEW_NODE_TITLES)];
+  for (const network of ["devnet", "testnet"] as CopyNetwork[]) {
+    out.push(requestIntro(network), helpNote(network));
+    for (const h of helpStages(network)) out.push(h.lead, h.rest);
+    for (const t of helpTerms(network)) out.push(t.term, t.text);
+  }
+  for (const n of [names, testnetNames]) {
+    for (const r of [...STAGES.map((stage) => req(stage)), ...variants()]) {
+      for (const canSimulate of [true, false]) {
+        const m = nowModel(r, oracles, n, { canSimulate, amount: (v) => `${v} wei` });
+        out.push(m.title, m.body, m.statusText, m.next, m.counts ?? "");
+        if (m.bulbNow) out.push(m.bulbNow.label, m.bulbNow.value, m.bulbNow.differs ?? "");
+      }
+      for (const e of logEntries(r, oracles, n)) out.push(e.title, e.word ?? "");
+      for (const a of actionModels(r, n, { selfServe: true, amount: (v) => `${v} wei` })) out.push(a.label, a.note);
+      const m = requestModel(r, oracles, n, { kind: "known", on: true });
+      out.push(...m.bulbLabel, m.dispute.caption, m.ruling.caption, ...Object.values(m.sub));
+      for (const t of r.txs) out.push(txName(t));
+      if (r.stage === "failed") {
+        const p = pausedModel(r, n);
+        out.push(p.title, p.lastStep, p.message, p.operatorAction, p.warning);
+      }
     }
   }
   out.push(...previewModel(oracles, [], 1, { kind: "disconnected" }, names).bulbLabel, previewModel(oracles, [], 1, { kind: "disconnected" }, names).dispute.caption);
@@ -71,6 +121,22 @@ const allText = (): string[] => {
     const f = sendFailure(e);
     out.push(f.title, f.message, f.advice);
   }
+  // the first paragraph of each data-layer reason is shown by default; the rest only under the details
+  for (const network of ["devnet", "testnet"] as const)
+    for (const [errorName, args] of [
+      ["InsufficientFunds", [1n, 0n]],
+      ["ReporterCannotPay", ["Vea", 1n, 0n]],
+      ["ThresholdBelowMinimum", [3n]],
+      ["CreationTimeoutNotPassed", []],
+      ["DisputeAlreadyCreated", []],
+      ["CreationFailureAlreadySent", []],
+      ["RulingNotReceived", []],
+      ["RulingAlreadyExecuted", []],
+      ["NoRefundPending", []],
+      ["RulerOnly", []],
+      ["RulingModeNotSet", []],
+    ] as const)
+      out.push(describeRevert({ errorName, args }, { network, homeChainName: "Arbitrum Sepolia" })!.split("\n")[0]);
   return out;
 };
 
@@ -93,17 +159,76 @@ describe("default-view copy", () => {
       const t = nowModel(req(stage), oracles, names, { canSimulate: false }).title;
       expect(t, `${stage} headline`).not.toMatch(/(^|\W)Request sent(?=$|\W)/);
     }
-    expect(Object.values(NODE_TITLES)).toEqual(["Request sent", "Court received", "Decision", "Decision returning", "Bulb updated"]);
-    expect(previewModel(oracles, [0], 1, { kind: "known", on: true }, names).bulbLabel[1]).toBe("Current bulb state on Base-like local devnet");
+    expect(Object.values(NODE_TITLES)).toEqual(["Request sent", "Delivered", "Decision", "Decision returning", "Bulb updated"]);
+    expect(Object.values(FAILURE_NODE_TITLES)).toEqual(["Request sent", "Delivered", "Case not opened", "Failure returning", "Request closed"]);
+    expect(previewModel(oracles, [0], 1, { kind: "known", on: true }, names).bulbLabel[1]).toBe("Current bulb state on Base-like");
     expect(previewModel(oracles, [0, 1], 2, { kind: "known", on: true }, names).dispute.caption).toBe("2 of 2 must agree");
     expect(previewModel(oracles, [], 1, { kind: "known", on: true }, names).dispute.caption).toBe("Choose an oracle first");
     expect(requestModel(req("dispute-relaying"), oracles, names).dispute.caption).toBe("1 reported · 2 required");
   });
 
-  it("keeps the log to the six plain stages plus oracle rows", () => {
-    const e = logEntries(req("dispute-relaying"), oracles, names);
-    expect(e.filter((x) => !x.report)).toHaveLength(6);
-    expect(e.map((x) => x.title).join(" ")).not.toMatch(/adapter|reporter|onMessage/i);
+  it("keeps the log to the seven plain stages plus oracle rows, on either path", () => {
+    for (const r of [req("dispute-relaying"), req("closed")]) {
+      const e = logEntries(r, oracles, names);
+      expect(e.filter((x) => !x.report)).toHaveLength(7);
+      expect(e.map((x) => x.title).join(" ")).not.toMatch(/adapter|reporter|onMessage/i);
+    }
+  });
+
+  it("words the testnet build without the local devnet, its operator or local ETH", () => {
+    const testnetText = [
+      requestIntro("testnet"),
+      helpNote("testnet"),
+      ...helpStages("testnet").flatMap((h) => [h.lead, h.rest]),
+      ...helpTerms("testnet").flatMap((t) => [t.term, t.text]),
+      ...[...STAGES.map((stage) => req(stage)), ...variants(TESTNET_BLOCKER)].flatMap((r) => [
+        ...logEntries(r, oracles, testnetNames).map((e) => e.title),
+        ...(r.stage === "failed" ? Object.values(pausedModel(r, testnetNames)).map(String) : []),
+        ...Object.values(nowModel(r, oracles, testnetNames, { canSimulate: false })).filter((v): v is string => typeof v === "string"),
+      ]),
+      describeRevert({ errorName: "InsufficientFunds", args: [1n, 0n] }, { network: "testnet" })!,
+    ];
+    for (const text of testnetText) expect(text, text).not.toMatch(/local (devnet|demo|operator|ETH|network)|this machine|yarn devnet/i);
+    expect(helpTerms("testnet").find((t) => t.term === "tx 0x…")?.text).toMatch(/block explorer/);
+  });
+});
+
+describe("creation failure copy", () => {
+  it("says why the case is waiting, then offers the failure once the window closes", () => {
+    const waiting = req("dispute-delivered");
+    const blocked = { ...waiting, creation: { ...waiting.creation!, blocker: BLOCKER } };
+    const n = nowModel(blocked, oracles, names, { canSimulate: false });
+    expect(`${n.title} ${n.body}`).toMatch(/lacks local ETH to open the case/);
+    expect(logEntries(blocked, oracles, names).find((e) => e.key === "dispute-received")).toMatchObject({
+      title: "Court cannot open the case yet",
+      word: "Waiting",
+    });
+    const expired = { ...blocked, actions: ["send-failure" as const] };
+    expect(logEntries(expired, oracles, names).find((e) => e.key === "dispute-received")).toMatchObject({
+      title: "Court did not open the case in time",
+      word: "Window closed",
+    });
+    const [send] = actionModels(expired, names, { selfServe: false });
+    expect(send).toMatchObject({ action: "send-failure", label: "Send the failure back", chain: "home" });
+    expect(send.note).toMatch(/juror fees are refunded/);
+  });
+
+  it("closes the request with the bulb unchanged and the refund due, then claimed", () => {
+    const due = req("closed");
+    expect(STAGE_LABEL.closed).toMatch(/^Closed/);
+    expect(logEntries(due, oracles, names).at(-1)?.title).toBe("Request closed · refund available");
+    const [claim] = actionModels(due, names, { selfServe: false, amount: (v) => `${v} wei` });
+    expect(claim).toMatchObject({ action: "claim-refund", label: "Claim refund · 2 wei", chain: "foreign" });
+    expect(requestModel(due, oracles, names, { kind: "known", on: false }).bulbLabel.join(" ")).toMatch(/unchanged/i);
+    const claimed = variants().find((r) => r.stage === "closed" && r.refund?.claimed)!;
+    expect(logEntries(claimed, oracles, names).at(-1)?.title).toBe("Request closed · juror fees refunded");
+    expect(actionModels(claimed, names, { selfServe: true })).toEqual([]);
+  });
+
+  it("offers the relay steps only where nobody else runs them (the testnets)", () => {
+    const deliver = req("dispute-relaying", { actions: ["deliver"] });
+    expect(actionModels(deliver, names, { selfServe: false })).toEqual([]);
+    expect(actionModels(deliver, testnetNames, { selfServe: true }).map((a) => a.label)).toEqual(["Deliver to Arbitrum Sepolia"]);
   });
 });
 
@@ -143,10 +268,10 @@ describe("failure copy", () => {
     const n = nowModel(req("failed"), oracles, names, { canSimulate: false });
     const panel = `${n.title} ${n.body} ${p.lastStep} ${p.operatorAction} ${p.warning}`;
     expect(panel.split(p.message).length - 1).toBe(1);
-    expect(n.body).toMatch(/court side.*fund it/);
+    expect(n.body).toMatch(/court side.*fix that/);
     expect(`${p.title} ${p.lastStep} ${p.message} ${p.operatorAction} ${p.warning}`).not.toMatch(/relay service/i);
     expect(p.warning).toMatch(/duplicate/);
-    expect(p.message).toMatch(/^The court side of this local devnet lacks local ETH/);
+    expect(p.message).toMatch(/^The court side refuses the delivery/);
     expect(p.detail).toMatch(/^The HomeGateway/);
     // a paid request's failure is never worded as a cancelled send
     expect(`${p.title} ${p.message} ${p.operatorAction}`).not.toMatch(/Cancelled before sending|Nothing was charged|Safe\. Already paid/i);

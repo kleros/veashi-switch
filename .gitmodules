@@ -2,4 +2,4 @@
 	path = contracts/lib/kleros-v2
 	url = https://github.com/kleros/kleros-v2.git
 	shallow = true
-	branch = feat/integrate-veashi
+	branch = feat/veashi-gateways-master
