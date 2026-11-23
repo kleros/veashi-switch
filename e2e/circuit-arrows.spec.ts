@@ -226,6 +226,8 @@ async function expectArrows(page: Page, label: string): Promise<string[]> {
 }
 
 const stateOf = (checked: string[], id: string) => checked.find((c) => c.startsWith(`${id}:`))?.split(":")[2];
+/** The six wires' states as drawn, in the order of travel (WIRES). */
+const wireStates = (checked: string[]) => Object.keys(WIRES).map((w) => stateOf(checked, w));
 
 /** In a high-contrast (forced colours) theme: the arrows not drawn in the system's text colour at full opacity. */
 async function forcedColourMisses(page: Page): Promise<{ arrows: number; misses: string[] }> {
@@ -255,7 +257,7 @@ test("[scenario:circuit-arrows] every connector's arrow points the way the messa
   await page.goto(fake ? "/?step=2500" : "/");
   await expect(page.getByTestId("circuit").first()).toBeVisible();
   const idle = await expectArrows(page, "preview");
-  for (const id of Object.keys(WIRES)) expect(stateOf(idle, id), `preview: ${id}`).toBe("idle");
+  expect(wireStates(idle)).toEqual(Array(6).fill("idle"));
   await page.getByTestId("theme-toggle").click();
   await expect(page.locator("html")).toHaveAttribute("data-theme", "light");
   await expectArrows(page, "preview, light");
@@ -283,7 +285,8 @@ test("[scenario:circuit-arrows] every connector's arrow points the way the messa
   await expect(page.getByTestId("leg-dispute")).toHaveAttribute("data-status", /^(live|done)$/);
   const live = await expectArrows(page, "request leg sent");
   expect(stateOf(live, "bulb-request")).toBe("done");
-  expect(stateOf(live, "updated-bulb")).toBe("idle");
+  // nothing has come back yet (whether Delivered is reached depends on the relayer's pace)
+  for (const w of ["court-returning", "junction-updated", "updated-bulb"]) expect(stateOf(live, w), w).toBe("idle");
   await expect(page.getByTestId("circuit")).toHaveAccessibleDescription(
     "In order: the bulb, Request sent, the oracles, Delivered, Decision, Decision returning, the oracles, Bulb updated, and back to the bulb.",
   );
@@ -293,21 +296,20 @@ test("[scenario:circuit-arrows] every connector's arrow points the way the messa
   // In progress: the court has the case.
   await expect(page.getByRole("button", { name: "Decide On" })).toBeVisible({ timeout: 120_000 });
   const court = await expectArrows(page, "court open");
-  expect(stateOf(court, "delivered-court")).toBe("done");
-  expect(stateOf(court, "court-returning")).toBe("idle");
+  expect(wireStates(court)).toEqual(["done", "done", "done", "idle", "idle", "idle"]);
 
   // In progress: the decision leg relaying.
   await page.getByRole("button", { name: "Decide On" }).click();
   await showCircuit(page);
   await expect(page.getByTestId("leg-ruling")).toHaveAttribute("data-status", /^(live|done)$/, { timeout: 120_000 });
   const back = await expectArrows(page, "decision leg sent");
-  expect(stateOf(back, "court-returning")).toBe("done");
+  expect(wireStates(back).slice(0, 4)).toEqual(["done", "done", "done", "done"]);
 
   // Done: the bulb is updated and every wire's arrow is done.
   await expect(page.getByTestId("node-foreignIn")).toHaveAttribute("data-state", "done", { timeout: 120_000 });
   await showCircuit(page);
   const done = await expectArrows(page, "done");
-  for (const w of Object.keys(WIRES)) expect(stateOf(done, w), `done: ${w}`).toBe("done");
+  expect(wireStates(done)).toEqual(Array(6).fill("done"));
   await attachScreenshot(page, testInfo, "circuit-arrows");
 });
 
@@ -333,19 +335,11 @@ test("arrows on a paused delivery and on a case the court could not open, back t
   await expect(page.getByTestId("node-court")).toHaveAttribute("data-state", "fail", { timeout: 60_000 });
   const stuck = await expectArrows(page, "court cannot open the case");
   // the wires on both sides of the court that could not open the case are red, never "in progress"
-  expect(stateOf(stuck, "delivered-court")).toBe("fail");
-  expect(stateOf(stuck, "court-returning")).toBe("fail");
+  expect(wireStates(stuck)).toEqual(["done", "done", "fail", "fail", "idle", "idle"]);
   await page.getByTestId("act-send-failure").getByRole("button", { name: "Send the failure back" }).click();
   await showCircuit(page);
   await expect(page.getByTestId("node-foreignIn")).toHaveAttribute("data-state", "done", { timeout: 60_000 });
   await expect(page.getByTestId("circuit")).toHaveAccessibleDescription(/Case not opened, Failure returning, the oracles, Request closed, and back to the bulb\.$/);
   const returned = await expectArrows(page, "failure returned");
-  expect(["bulb-request", "junction-delivered", "delivered-court", "court-returning", "junction-updated", "updated-bulb"].map((w) => stateOf(returned, w))).toEqual([
-    "done",
-    "done",
-    "fail",
-    "fail",
-    "done",
-    "done",
-  ]);
+  expect(wireStates(returned)).toEqual(["done", "done", "fail", "fail", "done", "done"]);
 });
