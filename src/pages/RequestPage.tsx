@@ -8,6 +8,7 @@ import { previewModel } from "../components/circuitModel";
 import { AGREEMENT_HINT, requestIntro } from "../components/copy";
 import { costBreakdown } from "../components/costModel";
 import { plainError, sendFailure, type SendFailure } from "../components/errors";
+import { Loader } from "../components/Loader";
 import { shortHash } from "../components/format";
 import { costStatus, readBulb, resolveBulbRead, submissionActions, type BulbRead } from "../components/readState";
 import { RouteSection } from "../components/RouteSection";
@@ -29,6 +30,8 @@ import {
 } from "../components/ui";
 import { useWallet, WalletStrip } from "../components/wallet";
 import { oracleColor } from "../theme/tokens";
+
+const LOADING_ORACLES = "Loading oracles…";
 
 /** One column at every width: the step carousel, then the Route preview under it at full width. */
 const Layout = styled.div`
@@ -743,12 +746,13 @@ export const RequestPage: React.FC = () => {
     { n: 3, label: "Pay and send" },
   ];
 
+  const oraclesLoading = step === 2 && !oracles && !loadError;
   const continueReason =
     step === 2
       ? !oracles
         ? loadError
           ? "Could not load oracles"
-          : "Loading oracles…"
+          : LOADING_ORACLES
         : selError
           ? selectionMessage(selError, oracles)
           : null
@@ -877,7 +881,7 @@ export const RequestPage: React.FC = () => {
               ) : loadError ? (
                 "Oracles unavailable"
               ) : (
-                "Loading oracles…"
+                <Loader label={LOADING_ORACLES} />
               )}
             </span>
             <LibButton
@@ -971,7 +975,9 @@ export const RequestPage: React.FC = () => {
       <Footer>
         {continueReason && (
           <p className={selError ? "why err" : "why"} id="continue-reason" data-testid="continue-reason">
-            Continue is unavailable: {continueReason}
+            Continue is unavailable:{" "}
+            {/* the loading state is announced once, by the selection summary above */}
+            {oraclesLoading ? <Loader live={false} label={continueReason} /> : continueReason}
           </p>
         )}
         <LibButton variant="secondary" type="button" text="Back" onClick={() => goTo(1)} data-testid="back" />
@@ -1074,7 +1080,8 @@ export const RequestPage: React.FC = () => {
           ) : (
             <>
               <p className="sub" style={{ fontSize: "var(--fs-sm)" }} role="status" data-testid="cost-status">
-                {costState.text}
+                {/* this line is the live region: the loader inside it does not announce again */}
+                {costState.loading ? <Loader live={false} label={costState.text} /> : costState.text}
               </p>
               {costState.retry && (
                 <p style={{ marginTop: 8 }}>

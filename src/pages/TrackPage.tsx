@@ -7,6 +7,7 @@ import { isFailurePath, isFinal } from "../data/lifecycle";
 import { BulbSvg } from "../components/Bulb";
 import { Circuit } from "../components/Circuit";
 import { requestModel } from "../components/circuitModel";
+import { Loader } from "../components/Loader";
 import { plainError } from "../components/errors";
 import { clockTime, formatAmount, rulingName, shortAddress, shortHash } from "../components/format";
 import { listState } from "../components/route";
@@ -64,6 +65,9 @@ const Head = styled(PageHead)`
   .find {
     flex: none;
     white-space: nowrap;
+  }
+  .status-space {
+    min-height: 1.5em;
   }
   .find button {
     white-space: nowrap;
@@ -495,6 +499,24 @@ const Strands = styled.span`
   }
 `;
 
+/** The request's loading state, where the status card will be and about its height, so nothing jumps when it arrives. */
+const RequestLoading = styled(Panel)`
+  display: flex;
+  align-items: center;
+  min-height: 184px;
+  margin-bottom: var(--gap-card);
+  color: var(--text-2);
+  @media (max-width: 760px) {
+    min-height: 240px;
+  }
+`;
+
+/** "Loading your requests…" in the space of what replaces it (the "No requests yet" heading, line and button). */
+const LatestLoading = styled.div`
+  min-height: 108px;
+  color: var(--text-3);
+`;
+
 const Picker = styled.div`
   display: grid;
   gap: 10px;
@@ -681,9 +703,7 @@ const FindBody: React.FC<{
         {!wallet.ready ? (
           <p className="msg">Connect a wallet to list your own requests.</p>
         ) : list.state === "loading" ? (
-          <p className="msg" role="status">
-            Loading your requests…
-          </p>
+          <Loader className="msg" label="Loading your requests…" />
         ) : list.state === "failed" ? (
           <div role="alert" className="msg">
             <p>Could not load your requests. {list.error}</p>
@@ -811,9 +831,9 @@ const Latest: React.FC = () => {
             />
           </>
         ) : list.state === "loading" ? (
-          <p className="muted" role="status">
-            Loading your requests…
-          </p>
+          <LatestLoading>
+            <Loader label="Loading your requests…" />
+          </LatestLoading>
         ) : list.state === "failed" ? (
           <Callout tone="err" title="Could not load your requests">
             <p>{list.error}</p>
@@ -1220,10 +1240,11 @@ const Tracked: React.FC<{ id: bigint }> = ({ id }) => {
   if (req === undefined)
     return (
       <Shell>
-        {head(`Request #${id.toString()}`)}
-        <p className="muted" role="status">
-          Loading the request…
-        </p>
+        {/* the status line's space under the title, kept so the head does not grow when the request arrives */}
+        {head(`Request #${id.toString()}`, <span className="status-space" aria-hidden="true" />)}
+        <RequestLoading data-testid="request-loading">
+          <Loader size="lg" label="Loading the request…" />
+        </RequestLoading>
       </Shell>
     );
   if (req === null)
@@ -1308,7 +1329,8 @@ const Tracked: React.FC<{ id: bigint }> = ({ id }) => {
               <>
                 <dt>{n.bulbNow.label}</dt>
                 <dd data-testid="bulb-now">
-                  {n.bulbNow.value}
+                  {/* the panel is the live region already */}
+                  {bulbRead.kind === "loading" ? <Loader live={false} label={n.bulbNow.value} /> : n.bulbNow.value}
                   {n.bulbNow.differs && <span className="differs"> · {n.bulbNow.differs}</span>}
                 </dd>
               </>

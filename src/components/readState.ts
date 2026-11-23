@@ -112,14 +112,15 @@ export function startHealthPoll(
 export interface CostStatus {
   text: string;
   retry: boolean;
+  loading: boolean; // a quote is on its way: the text is a loading state
 }
 
 /** What the cost area says when there is no actionable quote. */
 export function costStatus(o: { selError: boolean; quoteError: string | null; updating: boolean; hadQuote: boolean }): CostStatus {
-  if (o.selError) return { text: "Fix the oracle choice to see the cost.", retry: false };
-  if (o.quoteError) return { text: o.quoteError, retry: true };
-  if (o.updating && o.hadQuote) return { text: "Updating cost…", retry: false };
-  return { text: "Calculating request fee…", retry: false };
+  if (o.selError) return { text: "Fix the oracle choice to see the cost.", retry: false, loading: false };
+  if (o.quoteError) return { text: o.quoteError, retry: true, loading: false };
+  if (o.updating && o.hadQuote) return { text: "Updating cost…", retry: false, loading: true };
+  return { text: "Calculating request fee…", retry: false, loading: true };
 }
 
 export interface SubmissionActions {
