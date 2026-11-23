@@ -173,6 +173,9 @@ export interface SwitchData {
   approveUsdc(amount: bigint): Promise<Hex>; // waits for the receipt
   requestSwitch(selection: OracleSelection | null, token: PayToken): Promise<SwitchRequest>; // waits for the receipt
   request(disputeId: bigint): Promise<SwitchRequest | null>;
+  // The request a Kleros court case belongs to (jurors only know the court case number): its request ID, or null when
+  // the case was not opened for one of this GatewayLightbulb's requests.
+  caseRequest(caseId: bigint): Promise<bigint | null>;
   requests(owner: Address): Promise<SwitchRequest[]>; // newest first
   watchRequest(disputeId: bigint, onChange: (request: SwitchRequest) => void): Unsubscribe;
   // Runs one of `request.actions` with the connected wallet, switching it to the chain the step runs on, and waits

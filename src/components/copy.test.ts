@@ -82,6 +82,10 @@ const variants = (blocker = BLOCKER): SwitchRequest[] => {
     req("failure-relaying", { actions: ["execute-ruling"] }),
     req("closed", { refund: { token: "native", amount: 2n, claimed: { tx: tx("closed", 9).hash, beneficiary: "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266" } }, actions: [] }),
     req("failed", { txs: [tx("submitted", 1), tx("dispute-delivered", 2), tx("creation-failed", 3)] }),
+    // a ruling of 0 once the court decided: it refused to arbitrate
+    req("ruled", { ruling: 0 }),
+    req("ruling-relaying", { ruling: 0, actions: ["execute-ruling"] }),
+    req("switched", { ruling: 0 }),
   ];
 };
 
@@ -94,11 +98,12 @@ const allText = (): string[] => {
   }
   for (const n of [names, testnetNames]) {
     for (const r of [...STAGES.map((stage) => req(stage)), ...variants()]) {
-      for (const canSimulate of [true, false]) {
-        const m = nowModel(r, oracles, n, { canSimulate, amount: (v) => `${v} wei` });
-        out.push(m.title, m.body, m.statusText, m.next, m.counts ?? "");
-        if (m.bulbNow) out.push(m.bulbNow.label, m.bulbNow.value, m.bulbNow.differs ?? "");
-      }
+      for (const canSimulate of [true, false])
+        for (const bulb of [undefined, { kind: "known", on: true }, { kind: "known", on: false }, { kind: "failed" }] as const) {
+          const m = nowModel(r, oracles, n, { canSimulate, bulb, amount: (v) => `${v} wei` });
+          out.push(m.title, m.body, m.statusText, m.next, m.counts ?? "");
+          if (m.bulbNow) out.push(m.bulbNow.label, m.bulbNow.value, m.bulbNow.differs ?? "", m.bulbNow.juror ?? "");
+        }
       for (const e of logEntries(r, oracles, n)) out.push(e.title, e.word ?? "");
       for (const a of actionModels(r, n, { selfServe: true, amount: (v) => `${v} wei` })) out.push(a.label, a.note);
       const m = requestModel(r, oracles, n, { kind: "known", on: true });

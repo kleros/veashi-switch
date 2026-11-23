@@ -4,6 +4,7 @@ import { sendFailure } from "./errors";
 import {
   BANNER_STALE,
   costStatus,
+  lookupCase,
   readBulb,
   resolveBulbRead,
   startHealthPoll,
@@ -18,6 +19,24 @@ const B = "0x00000000000000000000000000000000000000b2" as Address;
 const R = (updatedAt: number) => ({ disputeId: 1n, stage: "dispute-relaying", updatedAt }) as unknown as SwitchRequest;
 
 afterEach(() => vi.useRealTimers());
+
+describe("court case lookup (the /case page)", () => {
+  it("found: the request the case belongs to", async () => {
+    expect(await lookupCase({ caseRequest: async (c) => (c === 214n ? 2n : null) }, 214n)).toEqual({ kind: "found", requestId: 2n });
+  });
+
+  it("not found: a case that is not one of this site's requests", async () => {
+    expect(await lookupCase({ caseRequest: async () => null }, 999999n)).toEqual({ kind: "missing" });
+  });
+
+  it("read error: a plain message, never a rejection, and not taken for not found", async () => {
+    const r = await lookupCase(
+      { caseRequest: async () => Promise.reject(new Error("The test network does not answer. Try again in a moment.\nHTTP 503")) },
+      214n,
+    );
+    expect(r).toEqual({ kind: "error", message: "The test network does not answer. Try again in a moment." });
+  });
+});
 
 describe("bulb read states", () => {
   it("is disconnected without an account, loading before a read and cleared when the account changes", () => {

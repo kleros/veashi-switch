@@ -1,7 +1,7 @@
 // State models for reads that can be unknown or fail: the bulb read, the Track request load, the fee quote and what
 // the payment area offers after a failed submission. Pure, so unit tests can hold them.
 import type { Address, SwitchData, SwitchRequest } from "../data";
-import type { SendFailure } from "./errors";
+import { plainError, type SendFailure } from "./errors";
 
 /** A bulb read is one of these four; unknown is never drawn or said as off. */
 export type BulbRead =
@@ -41,6 +41,23 @@ export function readBulb(
     );
   void attempt(retries);
   return () => timer && clearTimeout(timer);
+}
+
+/** A court case number looked up for its request (the /case page): found, not this site's case, or a failed read. */
+export type CaseLookup =
+  | { kind: "loading" }
+  | { kind: "found"; requestId: bigint }
+  | { kind: "missing" }
+  | { kind: "error"; message: string };
+
+/** Resolves a Kleros court case number to its request; a failed read becomes a plain message, never a rejection. */
+export async function lookupCase(data: Pick<SwitchData, "caseRequest">, caseId: bigint): Promise<CaseLookup> {
+  try {
+    const requestId = await data.caseRequest(caseId);
+    return requestId === null ? { kind: "missing" } : { kind: "found", requestId };
+  } catch (e) {
+    return { kind: "error", message: plainError(e) };
+  }
 }
 
 export const BANNER_STALE = "Updates unavailable—showing last known status";

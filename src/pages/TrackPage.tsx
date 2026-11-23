@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
-import { Copiable, Field, Tabs, Tag } from "@kleros/ui-components-library";
+import { Copiable, Tabs, Tag } from "@kleros/ui-components-library";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import styled from "styled-components";
 import type { Oracle, RequestAction, StageTx, SwitchRequest } from "../data";
@@ -7,9 +7,10 @@ import { isFailurePath, isFinal } from "../data/lifecycle";
 import { BulbSvg } from "../components/Bulb";
 import { Circuit } from "../components/Circuit";
 import { requestModel } from "../components/circuitModel";
+import { OpenById, Picker } from "../components/FindById";
 import { Loader } from "../components/Loader";
 import { plainError } from "../components/errors";
-import { clockTime, formatAmount, rulingName, shortAddress, shortHash } from "../components/format";
+import { clockTime, decisionName, decisionOf, formatAmount, shortAddress, shortHash } from "../components/format";
 import { listState } from "../components/route";
 import {
   readBulb,
@@ -24,6 +25,7 @@ import { useSetup } from "../components/setup";
 import { useCopy } from "../components/Toast";
 import {
   actionModels,
+  bulbPhase,
   DECISION_SUBMITTED,
   logEntries,
   messageLinks,
@@ -69,6 +71,10 @@ const Head = styled(PageHead)`
   }
   .status-space {
     min-height: 1.5em;
+  }
+  .case {
+    color: var(--text-2);
+    font-size: var(--fs-sm);
   }
   .find button {
     white-space: nowrap;
@@ -537,33 +543,6 @@ const LatestLoading = styled.div`
   color: var(--text-3);
 `;
 
-const Picker = styled.div`
-  display: grid;
-  gap: 10px;
-  min-width: min(100%, 300px);
-  max-width: 480px;
-  form > div:first-child > div,
-  form input {
-    width: 100%;
-  }
-  .lbl {
-    font-weight: 600;
-    font-size: var(--fs-sm);
-  }
-  form {
-    display: flex;
-    gap: 8px;
-    align-items: flex-start;
-  }
-  form > button {
-    min-height: 44px;
-  }
-  .msg {
-    font-size: var(--fs-sm);
-    color: var(--text-2);
-  }
-`;
-
 const ViewTabs: React.FC<{ view: View; onChange: (v: View) => void }> = ({ view, onChange }) => {
   const box = useRef<HTMLDivElement>(null);
   // The library Tabs render plain buttons: give them type, their pressed state and test ids after each render.
@@ -619,42 +598,6 @@ const TxCopy: React.FC<{ tx: StageTx; testId?: string }> = ({ tx, testId }) => {
     >
       {txName(tx)} <span className="h">tx {shortHash(tx.hash)}</span>
     </TxButton>
-  );
-};
-
-/** Look up a request by its number, with a persistent label and inline validation. */
-const OpenById: React.FC<{ onGo?: () => void }> = ({ onGo }) => {
-  const nav = useNavigate();
-  const [v, setV] = useState("");
-  const value = v.trim();
-  const invalid = value !== "" && !/^\d+$/.test(value);
-  return (
-    <form
-      onSubmit={(e) => {
-        e.preventDefault();
-        if (value && !invalid) {
-          nav(`/track/${value}`);
-          onGo?.();
-        }
-      }}
-      noValidate
-    >
-      <div style={{ flex: 1 }}>
-        <label htmlFor="open-id" className="lbl">
-          Request ID
-        </label>
-        <Field
-          id="open-id"
-          placeholder="For example 1"
-          inputMode="numeric"
-          value={v}
-          variant={invalid ? "error" : undefined}
-          message={invalid ? "Use digits only, for example 1." : undefined}
-          onChange={(e) => setV(e.target.value)}
-        />
-      </div>
-      <LibButton variant="secondary" text="Open" type="submit" disabled={!value || invalid} style={{ marginTop: 24 }} />
-    </form>
   );
 };
 
@@ -756,7 +699,7 @@ const FindBody: React.FC<{
                   >
                     Request #{r.disputeId.toString()} ·{" "}
                     {r.stage === "switched"
-                      ? `Complete · ${r.ruling === 1 ? "On" : "Off"}`
+                      ? `Complete · ${decisionOf(r) === "refused" ? "bulb unchanged" : decisionName(decisionOf(r))}`
                       : r.stage === "closed"
                         ? r.refund?.claimed
                           ? "Closed · refunded"
@@ -837,14 +780,14 @@ const Latest: React.FC = () => {
           <>
             <h2>Connect to see your latest request</h2>
             <p className="sub" style={{ margin: "6px 0 12px" }}>
-              Or open any request by its ID. No wallet is needed to follow one.
+              Or open any request by its ID or its court case number. No wallet is needed to follow one.
             </p>
             <WalletStrip
               gate={
                 gate.state === "disconnected"
                   ? {
                       ...gate,
-                      message: "Connect a wallet to see its requests, or enter a request ID below.",
+                      message: "Connect a wallet to see its requests, or enter a request or court case ID below.",
                     }
                   : gate
               }
@@ -1184,32 +1127,38 @@ const Tracked: React.FC<{ id: bigint }> = ({ id }) => {
       );
   }, [data, req?.paid.token]);
 
-  // The wallet's current bulb, read from the same source as the Request page, once the request has switched it.
-  // null while the read is pending; "failed" once a few short retries were rejected. Never inferred from the ruling.
+  // The requester's current bulb, read from the same source as the Request page: while the court decides (jurors rule
+  // the opposite of it), and once the request has switched it or closed without changing it. Loading while the read
+  // is pending; "failed" once a few short retries were rejected. Never inferred from the ruling.
   const [bulbStored, setBulbStored] = useState<{
     owner: string;
+    phase: "court" | "final";
     read: BulbRead;
   } | null>(null);
   const [bulbTry, setBulbTry] = useState(0);
   const owner = req?.owner;
-  // Read once the request has switched the bulb, or closed without changing it.
-  const switched = req?.stage === "switched" || req?.stage === "closed";
+  const phase = bulbPhase(req?.stage);
+  // In the court stages the read restarts when the stage moves, not on every poll (that would cancel its retries); once
+  // final, whenever the request updates (a claimed refund), as before.
+  const readKey = phase === "final" ? `final:${req?.updatedAt}` : phase ? `court:${req?.stage}` : null;
   useEffect(() => {
-    if (!owner || !switched) return;
+    if (!owner || !phase) return;
     let live = true;
     const stop = readBulb(
       data,
       owner,
       () => live,
-      (read) => setBulbStored({ owner, read })
+      (read) => setBulbStored({ owner, phase, read })
     );
     return () => {
       live = false;
       stop();
     };
-  }, [data, owner, switched, req?.updatedAt, bulbTry]);
-  // what was read for another request's owner is not shown; unknown is neither on nor off
-  const bulbRead: BulbRead = owner && bulbStored && bulbStored.owner === owner ? bulbStored.read : { kind: "loading" };
+  }, [data, owner, readKey, bulbTry]); // eslint-disable-line react-hooks/exhaustive-deps
+  // What was read for another request's owner, or before the decision was applied, is not shown as the result's bulb;
+  // unknown is neither on nor off.
+  const bulbRead: BulbRead =
+    owner && bulbStored && bulbStored.owner === owner && bulbStored.phase === phase ? bulbStored.read : { kind: "loading" };
   const mine = !!owner && !!wallet.address && wallet.address.toLowerCase() === owner.toLowerCase();
 
   const model = useMemo(
@@ -1226,11 +1175,12 @@ const Tracked: React.FC<{ id: bigint }> = ({ id }) => {
 
   // Without a status line (loading, error, not found) the head keeps that line's space, so it has one height from
   // the loading state to whatever replaces it.
-  const head = (title: React.ReactNode, status?: React.ReactNode) => (
+  const head = (title: React.ReactNode, status?: React.ReactNode, caseLine?: React.ReactNode) => (
     <Head>
       <div className="titles">
         <h1 data-testid="track-title">{title}</h1>
         {status ?? <span className="status-space" aria-hidden="true" />}
+        {caseLine}
       </div>
       <FindRequest current={id} stage={req?.stage} />
     </Head>
@@ -1283,6 +1233,7 @@ const Tracked: React.FC<{ id: bigint }> = ({ id }) => {
   const symbol = req.paid.token === "usdc" ? "USDC" : "ETH";
   const amount = (value: bigint) => formatAmount(value, tokenDecimals, symbol);
   const failurePath = isFailurePath(req);
+  const decision = decisionOf(req);
   let n = nowModel(req, oracles, names, { canSimulate, bulb: bulbRead, mine, amount });
   if (ruled && req.stage === "dispute-received")
     n = {
@@ -1292,6 +1243,7 @@ const Tracked: React.FC<{ id: bigint }> = ({ id }) => {
       statusText: "Decision submitted",
       next: "Automatic return delivery",
       action: null,
+      bulbNow: n.bulbNow && { ...n.bulbNow, juror: null },
     };
   const paused = req.stage === "failed" ? pausedModel(req, names) : null;
   const oName = (oid: number) => oracles.find((o) => o.id === oid)?.name ?? `Oracle ${oid}`;
@@ -1314,7 +1266,15 @@ const Tracked: React.FC<{ id: bigint }> = ({ id }) => {
 
   return (
     <Shell>
-      {head(`Request #${req.disputeId.toString()}`, statusLine)}
+      {head(
+        `Request #${req.disputeId.toString()}`,
+        statusLine,
+        req.homeDisputeId !== null && (
+          <span className="case" data-testid="track-case">
+            Court case #{req.homeDisputeId.toString()} · {names.home}
+          </span>
+        )
+      )}
 
       {tv.kind === "request" && tv.banner && (
         <div style={{ marginBottom: "var(--gap)" }}>
@@ -1357,6 +1317,12 @@ const Tracked: React.FC<{ id: bigint }> = ({ id }) => {
                 </dd>
               </>
             )}
+            {n.bulbNow?.juror && (
+              <>
+                <dt>For jurors</dt>
+                <dd data-testid="juror-line">{n.bulbNow.juror}</dd>
+              </>
+            )}
             {n.action !== "simulate" && (
               <>
                 <dt>Next</dt>
@@ -1397,7 +1363,7 @@ const Tracked: React.FC<{ id: bigint }> = ({ id }) => {
         <div className="actions">
           {n.action === "simulate" && <SimulateCourt req={req} onSent={() => setRuled(true)} />}
           <StepActions req={req} names={names} amount={amount} onDone={load} />
-          {(req.stage === "switched" || req.stage === "closed") && bulbRead.kind === "failed" && (
+          {n.bulbNow?.retry && (
             <LibButton
               small
               variant="secondary"
@@ -1496,7 +1462,13 @@ const Tracked: React.FC<{ id: bigint }> = ({ id }) => {
             <div>
               <dt>Decision</dt>
               <dd data-testid="ruling">
-                {failurePath ? "None: the case was not opened" : req.ruling === 0 ? "Not decided yet" : rulingName(req.ruling)}
+                {failurePath
+                  ? "None: the case was not opened"
+                  : decision === "pending"
+                    ? "Not decided yet"
+                    : decision === "refused"
+                      ? "Refused to arbitrate · bulb unchanged"
+                      : decisionName(decision)}
               </dd>
             </div>
             {req.refund && (
@@ -1577,11 +1549,11 @@ const Tracked: React.FC<{ id: bigint }> = ({ id }) => {
                     {e.title}: {e.tech}
                   </p>
                 ))}
-                <p className="mono">Ruling code {req.ruling} (1 = On, 2 = Off)</p>
+                <p className="mono">Ruling code {req.ruling} (0 = refused to arbitrate, 1 = On, 2 = Off)</p>
                 {req.stage === "switched" && (
                   <p className="mono">
                     LightbulbSwitched({shortAddress(req.owner)}, {req.disputeId.toString()},{" "}
-                    {req.ruling === 1 ? "true" : "false"})
+                    {decision === "refused" ? "unchanged" : decision === "on" ? "true" : "false"})
                   </p>
                 )}
                 {req.stage === "closed" && (

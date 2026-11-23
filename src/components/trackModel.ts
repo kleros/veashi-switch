@@ -12,7 +12,7 @@ import type {
 import { isFailurePath, reachedStage } from "../data/lifecycle";
 import type { ChainNames } from "./circuitModel";
 import { splitMessage } from "./errors";
-import { clockTime, rulingName, stageIndex } from "./format";
+import { clockTime, decisionName, decisionOf, stageIndex } from "./format";
 import type { BulbRead } from "./readState";
 
 export type EntryState = "done" | "cur" | "todo" | "fail" | "skip";
@@ -171,6 +171,7 @@ export function logEntries(req: SwitchRequest, oracles: Oracle[], names: ChainNa
   const there = `${names.foreign} to ${names.home}`;
   const back = `${names.home} to ${names.foreign}`;
   const blocked = req.creation?.state === "waiting" && req.creation.blocker !== null;
+  const decision = decisionOf(req);
 
   const opening: LogEntry = failurePath
     ? {
@@ -267,9 +268,9 @@ export function logEntries(req: SwitchRequest, oracles: Oracle[], names: ChainNa
     ...start,
     {
       key: "ruled",
-      title: s >= 4 ? `Court decided ${rulingName(req.ruling)}` : "Court decision",
+      title: decision === "pending" ? "Court decision" : decision === "refused" ? "Court refused to arbitrate" : `Court decided ${decisionName(decision)}`,
       chain: "home",
-      tech: `KlerosCoreRuler ruling (manual mode); ruling code ${req.ruling}`,
+      tech: `${names.testnet ? "KlerosCore" : "KlerosCoreRuler (manual mode)"} ruling; ruling code ${req.ruling} (0 = refused to arbitrate, 1 = On, 2 = Off)`,
       state: stageState(4),
       txs: txs("ruled"),
     },
@@ -285,9 +286,16 @@ export function logEntries(req: SwitchRequest, oracles: Oracle[], names: ChainNa
     ...reports("ruling", 5),
     {
       key: "switched",
-      title: s >= 6 && !paused ? `Bulb updated · set ${rulingName(req.ruling)} by this decision` : "Bulb updates",
+      title:
+        decision === "refused"
+          ? s >= 6 && !paused
+            ? "Bulb unchanged · the court refused to arbitrate"
+            : "Decision is applied · the bulb stays as it is"
+          : s >= 6 && !paused
+            ? `Bulb updated · set ${decisionName(decision)} by this decision`
+            : "Bulb updates",
       chain: "foreign",
-      tech: `ForeignGateway.executeRuling → GatewayLightbulb.rule(${req.disputeId.toString()}, ${req.ruling || "…"}); LightbulbSwitched`,
+      tech: `ForeignGateway.executeRuling → GatewayLightbulb.rule(${req.disputeId.toString()}, ${decision === "pending" ? "…" : req.ruling}); LightbulbSwitched`,
       state: stageState(6),
       txs: txs("switched"),
     },
@@ -341,11 +349,17 @@ export function actionModels(
           note: `The failure is on ${names.foreign}. Anyone can close the request; the juror fees then become claimable.`,
           chain: "foreign",
         }
-      : {
-          label: "Update the bulb",
-          note: `The decision is on ${names.foreign}. Anyone can apply it to the bulb.`,
-          chain: "foreign",
-        },
+      : decisionOf(req) === "refused"
+        ? {
+            label: "Apply the decision",
+            note: `The decision is on ${names.foreign}: the court refused to arbitrate, so the bulb stays as it is. Anyone can apply it to close the request.`,
+            chain: "foreign",
+          }
+        : {
+            label: "Update the bulb",
+            note: `The decision is on ${names.foreign}. Anyone can apply it to the bulb.`,
+            chain: "foreign",
+          },
     "claim-refund": {
       label: amount ? `Claim refund · ${amount}` : "Claim refund",
       note: "Pays the juror fees back to the requester. Anyone can send it.",
@@ -366,9 +380,29 @@ export interface NowModel {
   next: string; // who or what comes next, in plain words
   counts: string | null; // agreement counts of the leg in progress
   action: "simulate" | "done" | null;
-  /** The requester's current bulb, apart from this request's outcome (completed or closed requests only). */
-  bulbNow: { label: string; value: string; differs: string | null; retry: boolean } | null;
+  /**
+   * The requester's current bulb, apart from this request's outcome: from the court case until the decision is applied
+   * (jurors check it), and once the request is complete or closed. `juror` says which answer flips it, while the court
+   * decides and the bulb is known.
+   */
+  bulbNow: { label: string; value: string; differs: string | null; retry: boolean; juror: string | null } | null;
 }
+
+/** The stages Track reads the requester's bulb in: the court stages (for jurors), then the final ones. */
+export function bulbPhase(stage: RequestStage | undefined): "court" | "final" | null {
+  if (stage === "dispute-received" || stage === "ruled" || stage === "ruling-relaying") return "court";
+  if (stage === "switched" || stage === "closed") return "final";
+  return null;
+}
+
+/**
+ * For jurors: the answer that flips the requester's bulb (the court case asks them to rule the opposite of its current
+ * state). The answer titles are the dispute template's (docs/court-template.json).
+ */
+export const jurorLine = (on: boolean) =>
+  on
+    ? "The bulb is on now, so the answer that flips it is “Switch it off”."
+    : "The bulb is off now, so the answer that flips it is “Switch it on”.";
 
 export const DECISION_SUBMITTED = "Decision submitted. Waiting for return delivery…";
 
@@ -390,12 +424,14 @@ export function nowModel(
   const reported = (leg: OracleReport["leg"]) =>
     req.reports.filter((r) => r.leg === leg && r.status === "reported").length;
   const bulb: BulbRead = opts.bulb ?? { kind: "loading" };
-  const bulbNow = (differs: string | null): NowModel["bulbNow"] => ({
+  const bulbNow = (differs: string | null, forJurors = false): NowModel["bulbNow"] => ({
     label: opts.mine ? "Your bulb now" : "Requester's bulb now",
     value: bulb.kind === "known" ? (bulb.on ? "On" : "Off") : bulb.kind === "failed" ? "Current bulb state unavailable" : "Checking bulb…",
     differs,
     retry: bulb.kind === "failed",
+    juror: forJurors && bulb.kind === "known" ? jurorLine(bulb.on) : null,
   });
+  const decision = decisionOf(req);
   const refund = req.refund && opts.amount ? opts.amount(req.refund.amount) : "The juror fees";
   const relay = names.testnet ? "Anyone, or an automatic relay service" : "Automatic relay service";
   switch (req.stage) {
@@ -470,33 +506,39 @@ export function nowModel(
             next: "You: choose Decide On or Decide Off",
             counts: null,
             action: "simulate",
-            bulbNow: null,
+            bulbNow: bulbNow(null, true),
           }
         : {
-            title: `Your request is in court · Court case ${home}`,
+            title: `${opts.mine ? "Your request" : "The request"} is in court · Court case ${home}`,
             body: "The court decides. This page updates when the decision is made.",
             status: "live",
             statusText: "In court",
             next: "The court",
             counts: null,
             action: null,
-            bulbNow: null,
+            bulbNow: bulbNow(null, true),
           };
     case "ruled":
       return {
         title: DECISION_SUBMITTED,
-        body: `The court decided ${rulingName(req.ruling)}. The return delivery starts.`,
+        body:
+          decision === "refused"
+            ? "The court refused to arbitrate, so the bulb is left unchanged. The return delivery starts."
+            : `The court decided ${decisionName(decision)}. The return delivery starts.`,
         status: "live",
         statusText: "Decision submitted",
         next: relay,
         counts: null,
         action: null,
-        bulbNow: null,
+        bulbNow: bulbNow(null),
       };
     case "ruling-relaying":
       return {
         title: DECISION_SUBMITTED,
-        body: `The bulb on ${names.foreign} changes once ${k} oracles report the decision, ${rulingName(req.ruling)}.`,
+        body:
+          decision === "refused"
+            ? `The court refused to arbitrate. Once ${k} oracles report the decision on ${names.foreign}, the request closes and the bulb is left unchanged.`
+            : `The bulb on ${names.foreign} changes once ${k} oracles report the decision, ${decisionName(decision)}.`,
         status: "live",
         statusText: "In progress",
         next:
@@ -505,19 +547,25 @@ export function nowModel(
             : `Oracles: ${pendingOracles("ruling")}`,
         counts: `${reported("ruling")} reported · ${k} required`,
         action: null,
-        bulbNow: null,
+        bulbNow: bulbNow(null),
       };
     case "switched":
       return {
-        title: `Request complete · bulb set ${rulingName(req.ruling)}`,
-        body: `The court decided ${rulingName(req.ruling)} in Court case ${home} and the decision reached ${names.foreign}.`,
+        title: decision === "refused" ? "Request complete · bulb unchanged" : `Request complete · bulb set ${decisionName(decision)}`,
+        body:
+          decision === "refused"
+            ? `The court refused to arbitrate in Court case ${home}, so the bulb was left unchanged. The decision reached ${names.foreign}.`
+            : `The court decided ${decisionName(decision)} in Court case ${home} and the decision reached ${names.foreign}.`,
         status: "ok",
-        statusText: `Decision: ${rulingName(req.ruling)}`,
+        statusText: `Decision: ${decisionName(decision)}`,
         next: bulb.kind === "failed" ? "Retry the bulb check." : bulb.kind === "known" ? "No further action needed." : "Checking the bulb",
         counts: null,
         action: "done",
+        // a refusal sets nothing, so the current state cannot differ from it
         bulbNow: bulbNow(
-          bulb.kind === "known" && bulb.on !== (req.ruling === 1) ? "The current state differs from this request's result." : null,
+          decision !== "refused" && bulb.kind === "known" && bulb.on !== (decision === "on")
+            ? "The current state differs from this request's result."
+            : null,
         ),
       };
     case "creation-failed":

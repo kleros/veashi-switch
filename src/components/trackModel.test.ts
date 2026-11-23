@@ -1,7 +1,10 @@
 import { describe, expect, it } from "vitest";
-import type { Address, ChainInfo, ChainKey, Hex, Oracle } from "../data";
+import type { Address, ChainInfo, ChainKey, Hex, Oracle, RequestStage, SwitchRequest } from "../data";
 import { buildRequest, type LegFacts, type RequestFacts } from "../data/lifecycle";
-import { logEntries, messageLinks, scannerLink } from "./trackModel";
+import { requestModel } from "./circuitModel";
+import { decisionOf } from "./format";
+import type { BulbRead } from "./readState";
+import { actionModels, bulbPhase, jurorLine, logEntries, messageLinks, nowModel, scannerLink } from "./trackModel";
 
 const h = (n: number) => `0x${n.toString(16).padStart(64, "0")}` as Hex;
 const OWNER: Address = "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266";
@@ -191,5 +194,171 @@ describe("messageLinks (the request summary's links, in both views)", () => {
   it("is empty before any message was dispatched, and always without a scanner (the devnet)", () => {
     expect(links(base())).toEqual([]);
     for (const facts of [relaying(), switched(), closed()]) expect(links(facts, devnet)).toEqual([]);
+  });
+});
+
+// The court stages of a request: the case is open (214, as on the testnet), then a ruling of `value` is given and returns.
+const inCourt = () => delivered({ created: { tx: h(11), homeDisputeId: 214n } });
+const decided = (value: bigint) => delivered({ created: { tx: h(11), homeDisputeId: 214n }, ruling: { value, tx: RULING_TX } });
+const returning = (value: bigint, over: Partial<LegFacts> = {}) => ({ ...decided(value), rulingLeg: leg(RULING_TX, [0], { messageId: 8n, ...over }) });
+const applied = (value: bigint) => ({
+  ...decided(value),
+  rulingLeg: leg(RULING_TX, [0, 1, 2], { messageId: 8n, executedTx: h(30) }),
+  switched: { tx: h(31) },
+});
+const OFF: BulbRead = { kind: "known", on: false };
+const ON: BulbRead = { kind: "known", on: true };
+const now = (r: SwitchRequest, bulb?: BulbRead, more: { canSimulate?: boolean; mine?: boolean } = {}) =>
+  nowModel(r, oracles, names, { canSimulate: false, bulb, ...more });
+/** Every string the default view can show for a request: status card, steps, step buttons and circuit. */
+const shown = (r: SwitchRequest, bulb: BulbRead = OFF) => {
+  const n = now(r, bulb);
+  const c = requestModel(r, oracles, names, bulb);
+  return [
+    n.title,
+    n.body,
+    n.statusText,
+    n.next,
+    n.bulbNow?.value ?? "",
+    n.bulbNow?.differs ?? "",
+    n.bulbNow?.juror ?? "",
+    ...logEntries(r, oracles, names).map((e) => e.title),
+    ...actionModels(r, names, { selfServe: true }).flatMap((a) => [a.label, a.note]),
+    ...c.bulbLabel,
+    ...Object.values(c.sub),
+  ].join("\n");
+};
+
+describe("the requester's bulb during the court stages, for jurors", () => {
+  it("reads the bulb from the court case until the decision is applied, and once the request is final", () => {
+    const phases = Object.fromEntries(
+      (["submitted", "dispute-relaying", "dispute-delivered", "dispute-received", "ruled", "ruling-relaying", "switched", "creation-failed", "failure-relaying", "closed", "failed"] as RequestStage[]).map((s) => [s, bulbPhase(s)]),
+    );
+    expect(phases).toEqual({
+      submitted: null,
+      "dispute-relaying": null,
+      "dispute-delivered": null,
+      "dispute-received": "court",
+      ruled: "court",
+      "ruling-relaying": "court",
+      switched: "final",
+      "creation-failed": null,
+      "failure-relaying": null,
+      closed: "final",
+      failed: null,
+    });
+    expect(bulbPhase(undefined)).toBeNull();
+  });
+
+  it("while the court decides: bulb Off means Switch it on, bulb On means Switch it off, with or without a wallet", () => {
+    const r = buildRequest(inCourt());
+    expect(r.stage).toBe("dispute-received");
+    for (const canSimulate of [false, true]) {
+      expect(now(r, OFF, { canSimulate }).bulbNow).toEqual({
+        label: "Requester's bulb now",
+        value: "Off",
+        differs: null,
+        retry: false,
+        juror: "The bulb is off now, so the answer that flips it is “Switch it on”.",
+      });
+      expect(now(r, ON, { canSimulate }).bulbNow).toMatchObject({
+        value: "On",
+        juror: "The bulb is on now, so the answer that flips it is “Switch it off”.",
+      });
+    }
+    expect(jurorLine(false)).toMatch(/“Switch it on”/);
+    expect(jurorLine(true)).toMatch(/“Switch it off”/);
+    expect(now(r, OFF, { mine: true }).bulbNow?.label).toBe("Your bulb now");
+    // a juror is not the requester: the headline does not say "Your request"
+    expect(now(r, OFF).title).toBe("The request is in court · Court case #214");
+    expect(now(r, OFF, { mine: true }).title).toBe("Your request is in court · Court case #214");
+  });
+
+  it("names no answer while the bulb is loading or its read failed (with a retry)", () => {
+    const r = buildRequest(inCourt());
+    expect(now(r, { kind: "loading" }).bulbNow).toMatchObject({ value: "Checking bulb…", retry: false, juror: null });
+    expect(now(r).bulbNow).toMatchObject({ value: "Checking bulb…", juror: null });
+    expect(now(r, { kind: "failed" }).bulbNow).toMatchObject({ value: "Current bulb state unavailable", retry: true, juror: null });
+  });
+
+  it("keeps the current bulb, without the juror line, once the decision is given and while it returns", () => {
+    for (const facts of [decided(1n), returning(1n), decided(0n), returning(0n)]) {
+      const r = buildRequest(facts);
+      expect(["ruled", "ruling-relaying"]).toContain(r.stage);
+      expect(now(r, OFF).bulbNow).toMatchObject({ value: "Off", juror: null, retry: false });
+      expect(now(r, { kind: "failed" }).bulbNow).toMatchObject({ value: "Current bulb state unavailable", retry: true });
+    }
+  });
+
+  it("shows no bulb line before the case exists or on the failure path before it closes", () => {
+    for (const facts of [base(), relaying(), delivered(), creationFailed()]) expect(now(buildRequest(facts), OFF).bulbNow).toBeNull();
+  });
+});
+
+describe("a decision of 0: the court refused to arbitrate", () => {
+  it("tells a refusal from a decision not given yet by the stage, not the ruling code", () => {
+    expect(decisionOf(buildRequest(inCourt()))).toBe("pending");
+    expect(decisionOf(buildRequest(decided(0n)))).toBe("refused");
+    expect(decisionOf(buildRequest(returning(0n)))).toBe("refused");
+    expect(decisionOf(buildRequest(applied(0n)))).toBe("refused");
+    expect(decisionOf(buildRequest(decided(1n)))).toBe("on");
+    expect(decisionOf(buildRequest(applied(2n)))).toBe("off");
+    // the failure path has no decision; a paused return leg keeps the one it carries
+    expect(decisionOf(buildRequest(closed()))).toBe("pending");
+    const paused = buildRequest(returning(0n, { reports: [0, 1, 2].map((oracleId) => ({ oracleId, txHash: h(100 + oracleId) })), failure: "Paused." }));
+    expect(paused.stage).toBe("failed");
+    expect(decisionOf(paused)).toBe("refused");
+  });
+
+  it("says the court refused and the bulb is left unchanged, at every stage after the decision", () => {
+    const ruled = buildRequest(decided(0n));
+    expect(now(ruled).body).toBe("The court refused to arbitrate, so the bulb is left unchanged. The return delivery starts.");
+    expect(logEntries(ruled, oracles, names).find((e) => e.key === "ruled")?.title).toBe("Court refused to arbitrate");
+    expect(logEntries(ruled, oracles, names).find((e) => e.key === "switched")?.title).toBe("Decision is applied · the bulb stays as it is");
+
+    const back = buildRequest(returning(0n));
+    expect(now(back).body).toBe(
+      "The court refused to arbitrate. Once 2 oracles report the decision on Base Sepolia, the request closes and the bulb is left unchanged.",
+    );
+    expect(requestModel(back, oracles, names).bulbLabel).toEqual([
+      "Bulb will not change",
+      "The court refused to arbitrate; the decision is crossing back to Base Sepolia",
+    ]);
+    expect(requestModel(back, oracles, names).sub.court).toBe("Refused to arbitrate");
+
+    const executable = { ...back, actions: ["execute-ruling" as const] };
+    expect(actionModels(executable, names, { selfServe: true })[0]).toMatchObject({ action: "execute-ruling", label: "Apply the decision" });
+    expect(actionModels(executable, names, { selfServe: true })[0].note).toMatch(/refused to arbitrate, so the bulb stays as it is/);
+
+    const done = buildRequest(applied(0n));
+    for (const bulb of [OFF, ON]) {
+      const n = now(done, bulb);
+      expect(n.title).toBe("Request complete · bulb unchanged");
+      expect(n.body).toBe("The court refused to arbitrate in Court case #214, so the bulb was left unchanged. The decision reached Base Sepolia.");
+      expect(n.statusText).toBe("Decision: refused to arbitrate");
+      // a refusal sets nothing, so the current bulb never "differs" from it
+      expect(n.bulbNow).toMatchObject({ value: bulb === ON ? "On" : "Off", differs: null, juror: null });
+    }
+    expect(logEntries(done, oracles, names).find((e) => e.key === "switched")?.title).toBe("Bulb unchanged · the court refused to arbitrate");
+    expect(requestModel(done, oracles, names, ON).bulbLabel).toEqual(["Bulb unchanged: On", "The court refused to arbitrate"]);
+  });
+
+  it("never says 'not decided yet', On or Off for a refusal", () => {
+    for (const facts of [decided(0n), returning(0n), applied(0n)]) {
+      const text = shown(buildRequest(facts));
+      expect(text).not.toMatch(/not decided yet/i);
+      expect(text).not.toMatch(/decided (On|Off)|set (On|Off)|decision, (On|Off)|· (On|Off)$/m);
+    }
+  });
+
+  it("keeps the On and Off wording for rulings 1 and 2", () => {
+    expect(logEntries(buildRequest(decided(1n)), oracles, names).find((e) => e.key === "ruled")?.title).toBe("Court decided On");
+    expect(now(buildRequest(returning(2n))).body).toBe("The bulb on Base Sepolia changes once 2 oracles report the decision, Off.");
+    const off = buildRequest(applied(2n));
+    expect(now(off, ON).title).toBe("Request complete · bulb set Off");
+    expect(now(off, ON).bulbNow?.differs).toBe("The current state differs from this request's result.");
+    expect(logEntries(off, oracles, names).find((e) => e.key === "switched")?.title).toBe("Bulb updated · set Off by this decision");
+    expect(requestModel(off, oracles, names, OFF).sub.court).toBe("Court case #214 · Off");
+    expect(actionModels({ ...buildRequest(returning(1n)), actions: ["execute-ruling"] }, names, { selfServe: true })[0].label).toBe("Update the bulb");
   });
 });

@@ -160,6 +160,28 @@ export async function runRule(deps: RuleDeps, disputeId: bigint, ruling: 1 | 2):
   }
 }
 
+const MAX_UINT256 = 2n ** 256n - 1n;
+
+export interface CaseDeps {
+  lightbulb: Address;
+  hashOf: (caseId: bigint) => Promise<Hex>; // HomeGateway.disputeIDtoHash: zero for a case it did not open
+  disputeOf: (hash: Hex) => Promise<{ id: bigint; arbitrable: Address; relayed: boolean }>; // ForeignGateway.disputeHashtoDisputeData
+}
+
+/**
+ * The request a Kleros court case belongs to: the reverse of the request's `disputeHashtoID` read, in two view calls and
+ * no event scan. Null when the HomeGateway did not open the case, or opened it for another arbitrable. A failed read
+ * rejects (the caller words it).
+ */
+export async function resolveCase(deps: CaseDeps, caseId: bigint): Promise<bigint | null> {
+  if (caseId < 0n || caseId > MAX_UINT256) return null;
+  const hash = await deps.hashOf(caseId);
+  if (BigInt(hash) === 0n) return null;
+  const dispute = await deps.disputeOf(hash);
+  if (!dispute.relayed || !sameAddress(dispute.arbitrable, deps.lightbulb)) return null;
+  return dispute.id;
+}
+
 export function createChainSwitchData(env: ParsedDevnetEnv, config: Config): SwitchData {
   const chains = devnetChains(env);
   const pollingInterval = POLL_MS[env.kind];
@@ -590,6 +612,25 @@ export function createChainSwitchData(env: ParsedDevnetEnv, config: Config): Swi
     }
   }
 
+  function caseRequest(caseId: bigint): Promise<bigint | null> {
+    return resolveCase(
+      {
+        lightbulb,
+        hashOf: (id) => home.readContract({ address: ha.HomeGateway, abi: homeGatewayAbi, functionName: "disputeIDtoHash", args: [id] }),
+        disputeOf: async (hash) => {
+          const [id, , arbitrable, relayed] = await foreign.readContract({
+            address: gateway,
+            abi: foreignGatewayAbi,
+            functionName: "disputeHashtoDisputeData",
+            args: [hash],
+          });
+          return { id: BigInt(id), arbitrable, relayed };
+        },
+      },
+      caseId,
+    ).catch(fail);
+  }
+
   /** The contract call behind one action, on the chain it runs on. */
   function actionCall(action: RequestAction, disputeId: bigint, handles: Handles, yaru: { foreign: Address; home: Address }) {
     const missing = (what: string): never => {
@@ -830,6 +871,7 @@ export function createChainSwitchData(env: ParsedDevnetEnv, config: Config): Swi
     approveUsdc,
     requestSwitch,
     request,
+    caseRequest,
     requests: (owner) => requests(owner).catch(fail),
     watchRequest,
     act,

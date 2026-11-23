@@ -297,6 +297,10 @@ export function fakeSetup(): AppSetup {
       if (sw().outage) throw new Error("The local network does not answer.");
       return requests.get(id) ?? null;
     },
+    caseRequest: async (caseId) => {
+      if (sw().outage) throw new Error("The local network does not answer.");
+      return [...requests.values()].find((r) => r.homeDisputeId === caseId)?.disputeId ?? null;
+    },
     requests: async (o) =>
       [...requests.values()].filter((r) => r.owner.toLowerCase() === o.toLowerCase()).reverse(),
     watchRequest(id, cb) {

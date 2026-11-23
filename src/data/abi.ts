@@ -63,6 +63,7 @@ export const homeGatewayAbi = parseAbi([
   "function yaru() view returns (address)",
   "function getReceivedDispute(bytes32) view returns ((bool created, uint256 threshold, uint256[] oracleIDs, bool creationFailed, uint64 receivedAt, bytes32 messageHash))",
   "function disputeHashtoID(bytes32) view returns (uint256)",
+  "function disputeIDtoHash(uint256) view returns (bytes32)",
   "function creationTimeout() view returns (uint256)",
   `function createReceivedDispute(${DISPUTE_MESSAGE} _message) returns (uint256)`,
   "function sendCreationFailure(bytes32 _disputeHash) returns (uint256)",

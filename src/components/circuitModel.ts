@@ -1,6 +1,6 @@
 import type { ChainKey, FlowStage, Oracle, OracleReport, StageTx, SwitchRequest } from "../data";
 import { isFailurePath, reachedStage as reachedFlowStage } from "../data/lifecycle";
-import { rulingName, stageIndex } from "./format";
+import { decisionName, decisionOf, stageIndex } from "./format";
 import type { BulbRead } from "./readState";
 
 export type NodeKey = "foreignOut" | "homeIn" | "court" | "homeOut" | "foreignIn";
@@ -186,7 +186,10 @@ export function requestModel(
   }
   const home = req.homeDisputeId !== null ? `#${req.homeDisputeId.toString()}` : "";
   const sub = nodeSubs(names, home);
-  if (s >= 4 && !failurePath) sub.court = `${sub.court} · ${req.ruling === 1 ? "On" : "Off"}`;
+  const decision = decisionOf(req);
+  // a refusal replaces the case number: the node label has room for about 22 characters
+  if (decision === "refused") sub.court = "Refused to arbitrate";
+  else if (decision !== "pending") sub.court = `${sub.court} · ${decisionName(decision)}`;
   if (failurePath) sub.court = "Kleros Court · no case";
 
   let bulb: BulbState = "waiting";
@@ -203,7 +206,9 @@ export function requestModel(
       ? ["Current bulb state unavailable", "Use Retry bulb check below the status"]
       : ["Checking bulb…", `Looking it up on ${names.foreign}`];
   };
-  if (s >= 6 && !failed && failurePath) {
+  if (s >= 6 && !failed && decision === "refused") {
+    bulbLabel = known("Bulb unchanged", "The court refused to arbitrate");
+  } else if (s >= 6 && !failed && failurePath) {
     bulbLabel = known("Bulb unchanged", req.refund?.claimed ? "The case was not opened; juror fees refunded" : "The case was not opened; refund available");
   } else if (s >= 6 && !failed) {
     bulbLabel = known(who, `Current bulb state on ${names.foreign}`);
@@ -219,8 +224,10 @@ export function requestModel(
       : ["Waiting for the court", `Opening the case on ${names.home}`];
   } else if (s === 3) {
     bulbLabel = ["Waiting for the court's decision", `Court case ${home}`];
+  } else if (decision === "refused") {
+    bulbLabel = ["Bulb will not change", `The court refused to arbitrate; the decision is crossing back to ${names.foreign}`];
   } else {
-    bulbLabel = ["Waiting for delivery", `The decision, ${rulingName(req.ruling)}, is crossing back to ${names.foreign}`];
+    bulbLabel = ["Waiting for delivery", `The decision, ${decisionName(decision)}, is crossing back to ${names.foreign}`];
   }
   return {
     oracles: oracleList(oracles, selected),

@@ -8,6 +8,7 @@ import { TopBar } from "./components/TopBar";
 import { NetworkDown, setupCopy } from "./components/NetworkDown";
 import { PageHead, Shell } from "./components/ui";
 import { AccountControl, WalletProvider } from "./components/wallet";
+import { CasePage } from "./pages/CasePage";
 import { RequestPage } from "./pages/RequestPage";
 import { TrackPage } from "./pages/TrackPage";
 import { ThemeMode } from "./theme/ThemeMode";
@@ -58,6 +59,8 @@ export const App: React.FC<{ boot: Boot }> = ({ boot }) => {
                       <Route path="/" element={<RequestPage />} />
                       <Route path="/track" element={<TrackPage />} />
                       <Route path="/track/:disputeId" element={<TrackPage />} />
+                      <Route path="/case" element={<CasePage />} />
+                      <Route path="/case/:caseId" element={<CasePage />} />
                       <Route path="*" element={<Navigate to="/" replace />} />
                     </Routes>
                   </WalletProvider>
