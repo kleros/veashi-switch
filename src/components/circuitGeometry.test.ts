@@ -5,6 +5,7 @@ import {
   ARROW_BACK,
   ARROW_HALF,
   ARROW_MIN_OPACITY,
+  ARROW_PATH,
   BULB_AT,
   circuitConnectors,
   JUNCTION_R,
@@ -193,14 +194,16 @@ function distTo(stop: Stop, p: Pt): number {
   return Math.hypot(dx, dy);
 }
 
-/** The chevron's three points: its tip and the ends of its two arms. */
+/** The chevron as drawn, ARROW_PATH's three points (an arm's end, the tip, the other arm's end), on its connector. */
+const ARROW_POINTS = ARROW_PATH.match(/-?\d+(\.\d+)?/g)!.map(Number);
 function chevron(c: Connector): Pt[] {
   const a = (c.arrow.angle * Math.PI) / 180;
   const at = (lx: number, ly: number) => ({
     x: c.arrow.x + lx * Math.cos(a) - ly * Math.sin(a),
     y: c.arrow.y + lx * Math.sin(a) + ly * Math.cos(a),
   });
-  return [at(-ARROW_BACK, -ARROW_HALF), at(0, 0), at(-ARROW_BACK, ARROW_HALF)];
+  const p = ARROW_POINTS;
+  return [at(p[0], p[1]), at(p[2], p[3]), at(p[4], p[5])];
 }
 
 const HEADING: Record<string, Pt> = { right: { x: 1, y: 0 }, left: { x: -1, y: 0 }, down: { x: 0, y: 1 }, up: { x: 0, y: -1 } };
@@ -216,6 +219,13 @@ const ROUTE: [Stop, Stop, string][] = [
   ["junction-ruling", "foreignIn", "left"],
   ["foreignIn", "bulb", "up"],
 ];
+
+describe("ARROW_PATH", () => {
+  it("is a chevron with its tip at the origin and both arms behind it, so it points along +x", () => {
+    expect(ARROW_PATH).toMatch(/^M\S+ \S+ L\S+ \S+ L\S+ \S+$/);
+    expect(ARROW_POINTS).toEqual([-ARROW_BACK, -ARROW_HALF, 0, 0, -ARROW_BACK, ARROW_HALF]);
+  });
+});
 
 describe("circuitConnectors", () => {
   for (const [label, model] of CASES) {
