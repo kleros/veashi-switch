@@ -1,4 +1,4 @@
-import React, { useLayoutEffect, useRef } from "react";
+import React, { useId, useLayoutEffect, useRef } from "react";
 import styled from "styled-components";
 import type { StageTx } from "../data";
 import { Bulb, bulbCss } from "./Bulb";
@@ -435,8 +435,8 @@ export const Circuit: React.FC<{ model: CircuitModel; names: ChainNames; label: 
   const reduceMotion = () => window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
   const by = (dx: number) => scroll.current?.scrollBy({ left: dx, behavior: reduceMotion() ? "auto" : "smooth" });
   const connectors = circuitConnectors(model);
-  // The arrows are decorative: the accessible name says the order of travel in words.
-  const name = `${label}${/[.!?]$/.test(label) ? "" : "."} ${travelOrder(model)}`;
+  // The arrows are decorative: the circuit's description says the order of travel in words; its name stays short.
+  const descId = useId();
   const bulbColor =
     model.bulb === "on" ? "var(--bulb-on)" : model.bulb === "waiting" ? "var(--purple-2)" : model.bulb === "unknown" ? "var(--text-3)" : "var(--text-2)";
   return (
@@ -451,7 +451,8 @@ export const Circuit: React.FC<{ model: CircuitModel; names: ChainNames; label: 
         </IconButton>
       </Controls>
       <Scroll ref={scroll} data-testid="circuit-scroll" tabIndex={0} role="region" aria-label="Circuit, scrolls sideways">
-        <Svg viewBox="0 0 1000 380" role="img" aria-label={name} data-testid="circuit">
+        <Svg viewBox="0 0 1000 380" role="img" aria-label={label} aria-describedby={descId} data-testid="circuit">
+          <desc id={descId}>{travelOrder(model)}</desc>
           <text x={180} y={32} className="t-lane">{`Request leg · ${names.foreign} → ${names.home}`}</text>
           {/* the bottom lane runs right to left: its title's arrow points the way its arrows do */}
           <text x={180} y={368} className="t-lane">{`Decision leg · ${names.foreign} ← ${names.home}`}</text>

@@ -269,7 +269,9 @@ test("[scenario:circuit-arrows] every connector's arrow points the way the messa
     await page.emulateMedia({ forcedColors: "none" });
   }
   await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
-  await expect(page.getByTestId("circuit").first()).toHaveAttribute("aria-label", /In order: the bulb, Send request, the oracles, .*, and back to the bulb\.$/);
+  // the order of travel is the circuit's description, its name stays the short label
+  await expect(page.getByTestId("circuit").first()).toHaveAccessibleDescription(/^In order: the bulb, Send request, the oracles, .*, and back to the bulb\.$/);
+  await expect(page.getByTestId("circuit").first()).toHaveAccessibleName(/^Route preview from your lightbulb on .* and back\. Each coloured strand is an oracle; the circle shows how many must agree\.$/);
 
   // In progress: the request leg relaying.
   await connectTestWallet(page);
@@ -282,10 +284,11 @@ test("[scenario:circuit-arrows] every connector's arrow points the way the messa
   const live = await expectArrows(page, "request leg sent");
   expect(stateOf(live, "bulb-request")).toBe("done");
   expect(stateOf(live, "updated-bulb")).toBe("idle");
-  await expect(page.getByTestId("circuit")).toHaveAttribute(
-    "aria-label",
-    /In order: the bulb, Request sent, the oracles, Delivered, Decision, Decision returning, the oracles, Bulb updated, and back to the bulb\.$/,
+  await expect(page.getByTestId("circuit")).toHaveAccessibleDescription(
+    "In order: the bulb, Request sent, the oracles, Delivered, Decision, Decision returning, the oracles, Bulb updated, and back to the bulb.",
   );
+  await expect(page.getByTestId("circuit")).toHaveAccessibleName(/^Circuit of request \d+ from .* to Kleros Court on .* and back\./);
+  expect(await page.getByTestId("circuit").getAttribute("aria-label")).not.toContain("In order");
 
   // In progress: the court has the case.
   await expect(page.getByRole("button", { name: "Decide On" })).toBeVisible({ timeout: 120_000 });
@@ -335,7 +338,7 @@ test("arrows on a paused delivery and on a case the court could not open, back t
   await page.getByTestId("act-send-failure").getByRole("button", { name: "Send the failure back" }).click();
   await showCircuit(page);
   await expect(page.getByTestId("node-foreignIn")).toHaveAttribute("data-state", "done", { timeout: 60_000 });
-  await expect(page.getByTestId("circuit")).toHaveAttribute("aria-label", /Case not opened, Failure returning, the oracles, Request closed, and back/);
+  await expect(page.getByTestId("circuit")).toHaveAccessibleDescription(/Case not opened, Failure returning, the oracles, Request closed, and back to the bulb\.$/);
   const returned = await expectArrows(page, "failure returned");
   expect(["bulb-request", "junction-delivered", "delivered-court", "court-returning", "junction-updated", "updated-bulb"].map((w) => stateOf(returned, w))).toEqual([
     "done",

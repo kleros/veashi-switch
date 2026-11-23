@@ -243,7 +243,7 @@ export function strandArrowOpacity(st: StrandState, leg: LegName, legStatus: Leg
   return st === "fail" ? 1 : Math.max(strandOpacity(st, leg, legStatus), ARROW_MIN_OPACITY);
 }
 
-/** The order of travel in one plain sentence, for the circuit's accessible name. */
+/** The order of travel in one plain sentence, for the circuit's accessible description. */
 export function travelOrder(model: CircuitModel): string {
   const t = model.titles;
   return `In order: the bulb, ${t.foreignOut}, the oracles, ${t.homeIn}, ${t.court}, ${t.homeOut}, the oracles, ${t.foreignIn}, and back to the bulb.`;
