@@ -5,26 +5,26 @@
     "name": "Base Sepolia",
     "rpcUrl": "https://base-sepolia-rpc.publicnode.com",
     "explorerUrl": "https://sepolia.basescan.org",
-    "fromBlock": 0
+    "fromBlock": 62544707
   },
   "home": {
     "chainId": 421614,
     "name": "Arbitrum Sepolia",
     "rpcUrl": "https://sepolia-rollup.arbitrum.io/rpc",
     "explorerUrl": "https://sepolia.arbiscan.io",
-    "fromBlock": 0
+    "fromBlock": 331953930
   },
   "addresses": {
     "foreign": {
-      "ForeignGateway": "",
-      "GatewayLightbulb": "",
-      "USDC": "",
+      "ForeignGateway": "0xD2065e625D19eF00AA0b9E4cCb51D79a56b8343a",
+      "GatewayLightbulb": "0x9b2F1d258F7ded62874807c6DD15247b5C6Cff37",
+      "USDC": "0x036CbD53842c5426634e7929541eC2318f3dCF7e",
       "Yaho": "0xf69BCD5Ff8A64919BE217bC017454aba4f6daa9D",
       "Yaru": "0xFe9fF402A80EF4aBA0181759ad4ECDAfc815dFbf"
     },
     "home": {
-      "HomeGateway": "",
-      "KlerosCoreRuler": "",
+      "HomeGateway": "0x9b2F1d258F7ded62874807c6DD15247b5C6Cff37",
+      "KlerosCoreRuler": "0xE8442307d36e9bf6aB27F1A009F95CE8E11C3479",
       "Yaho": "0xDbdF80c87f414fac8342e04D870764197bD3bAC7",
       "Yaru": "0xEA3799EA443bf65a7Dc8C1dBfd9e64962f9Af724"
     }
