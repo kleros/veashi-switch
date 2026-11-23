@@ -1,8 +1,29 @@
-import React, { useLayoutEffect, useRef } from "react";
+import React, { useId, useLayoutEffect, useRef } from "react";
 import styled from "styled-components";
 import type { StageTx } from "../data";
 import { Bulb, bulbCss } from "./Bulb";
 import type { ChainNames, CircuitModel, LegModel, NodeKey, NodeState } from "./circuitModel";
+import {
+  ARROW_PATH,
+  BULB_AT,
+  circuitConnectors,
+  JUNCTION_R,
+  labelX,
+  LEG_AT,
+  MID,
+  NODE_AT,
+  NODE_H,
+  NODE_W,
+  strandArrowOpacity,
+  strandLabel,
+  strandOpacity,
+  strandPath,
+  strandY,
+  travelOrder,
+  type Connector,
+  type LegName,
+  type WireState,
+} from "./circuitGeometry";
 import { shortHash } from "./format";
 import { txName } from "./trackModel";
 import { Icon, IconButton } from "./ui";
@@ -134,15 +155,46 @@ const Svg = styled.svg`
     stroke: var(--wire-idle) !important;
     stroke-dasharray: 3 6;
     stroke-width: 1.5;
-    opacity: 0.7;
   }
   .strand.pending {
-    opacity: 0.55;
     stroke-dasharray: 6 6;
   }
   .strand.fail {
     stroke-dasharray: 2 6;
-    opacity: 0.9;
+  }
+  /* The direction of travel: an open chevron on every connector, solid even where its wire is dashed. A wire's arrow
+     takes the wire's state colour (idle: a stronger shade of the idle wire, so it reads at 3:1); a strand's arrow
+     takes the strand's colour, set where it is drawn, at no less than ARROW_MIN_OPACITY. */
+  .arrow {
+    fill: none;
+    stroke-width: 2;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    transition: opacity 0.4s var(--ease-out);
+  }
+  .arrow.idle {
+    stroke: var(--arrow-idle);
+  }
+  .arrow.live {
+    stroke: var(--purple-2);
+  }
+  .arrow.done {
+    stroke: var(--ok);
+  }
+  .arrow.fail {
+    stroke: var(--err);
+  }
+  /* High-contrast themes: the SVG keeps its own colours, so draw every arrow in the system's text colour (any CSS
+     rule outranks a strand arrow's stroke and opacity attributes). */
+  @media (forced-colors: active) {
+    .arrow,
+    .arrow.idle,
+    .arrow.live,
+    .arrow.done,
+    .arrow.fail {
+      stroke: CanvasText;
+      opacity: 1;
+    }
   }
   .pulse {
     fill: none;
@@ -170,23 +222,13 @@ const Svg = styled.svg`
       stroke-dasharray: none;
       opacity: 0.35;
     }
+    .arrow {
+      transition: none;
+    }
   }
 `;
 
-const TOP = 95;
-const BOT = 290;
-const MID = (TOP + BOT) / 2;
-const GAP_Y = 28;
-
-const wireCls = (s: "idle" | "active" | "done" | "fail") =>
-  `wire ${s === "done" ? "done" : s === "active" ? "live" : s === "fail" ? "fail" : ""}`;
-
-function wireBetween(a: NodeState, b: NodeState): "idle" | "active" | "done" | "fail" {
-  if (a === "done" && (b === "done" || b === "active")) return "done";
-  if (a === "fail") return "fail";
-  if (a === "done") return "active";
-  return "idle";
-}
+const STATE_CLS: Record<WireState, string> = { idle: "idle", active: "live", done: "done", fail: "fail" };
 
 const GLYPH: Record<Exclude<NodeState, "idle">, string> = {
   done: "M-3 0.5 l2.4 2.4 l4.2 -5",
@@ -242,12 +284,13 @@ const TxText: React.FC<{ x: number; y: number; tx: StageTx; nodeKey: NodeKey }> 
   );
 };
 
-function Node({ k, x, y, model }: { k: NodeKey; x: number; y: number; model: CircuitModel }) {
+function Node({ k, model }: { k: NodeKey; model: CircuitModel }) {
+  const { x, y } = NODE_AT[k];
   const state = model.nodes[k];
   const tx = model.tx[k];
   return (
     <g data-testid={`node-${k}`} data-state={state}>
-      <rect x={x} y={y - 40} width={156} height={80} rx={4} className={`node ${state}`} />
+      <rect x={x} y={y - NODE_H / 2} width={NODE_W} height={NODE_H} rx={4} className={`node ${state}`} />
       <text x={x + 12} y={y - 16} className="t-node">
         {model.titles[k]}
       </text>
@@ -261,30 +304,14 @@ function Node({ k, x, y, model }: { k: NodeKey; x: number; y: number; model: Cir
           {STATE_TEXT[state]}
         </text>
       )}
-      <StatusDot x={x + 156} y={y - 40} state={state} />
+      <StatusDot x={x + NODE_W} y={y - NODE_H / 2} state={state} />
     </g>
   );
 }
 
-function Leg({
-  name,
-  model,
-  L,
-  x0,
-  x1,
-  y,
-  jx,
-  dir,
-}: {
-  name: "dispute" | "ruling";
-  model: CircuitModel;
-  L: LegModel;
-  x0: number;
-  x1: number;
-  y: number;
-  jx: number;
-  dir: 1 | -1;
-}) {
+function Leg({ name, model, L }: { name: LegName; model: CircuitModel; L: LegModel }) {
+  const g = LEG_AT[name];
+  const { y, jx, dir } = g;
   const n = model.oracles.length;
   const k = model.threshold;
   const total = model.selected.length;
@@ -300,30 +327,23 @@ function Leg({
   return (
     <g data-testid={`leg-${name}`} data-status={L.status}>
       {model.oracles.map((o, i) => {
-        const oy = y + (i - (n - 1) / 2) * GAP_Y;
+        const oy = strandY(g, i, n);
         const selected = model.selected.includes(o.id);
         const st = selected ? (L.oracles[o.id] ?? "ready") : "off";
-        const a = x0;
-        const b = x1;
-        const m1 = a + dir * 40;
-        const m2 = b - dir * 40;
-        const d = `M${a} ${y} C${m1} ${y} ${m1} ${oy} ${a + dir * 70} ${oy} L${b - dir * 70} ${oy} C${m2} ${oy} ${m2} ${y} ${b} ${y}`;
+        const d = strandPath(g, oy);
         const color = oracleColor(o.id);
-        const lx = dir > 0 ? a + 78 : b + 78;
-        const tx = 9 + o.name.length * 7.4 + 6;
+        const lx = labelX(g);
+        const label = strandLabel(o.name);
+        const tx = 9 + label.length * 7.4 + 6;
         return (
           <g key={o.id} data-testid={`strand-${name}-${o.id}`} data-state={st}>
-            <path
-              d={d}
-              className={`strand ${st}`}
-              stroke={color}
-              opacity={st === "ready" ? (L.status === "ready" && name === "ruling" ? 0.35 : 0.6) : undefined}
-            />
+            <path d={d} className={`strand ${st}`} stroke={color} opacity={strandOpacity(st, name, L.status)} />
             {st === "pending" && <path d={d} className="pulse" stroke={color} />}
             <g transform={`translate(${lx} ${oy - 6})`}>
+              {label !== o.name && <title>{o.name}</title>}
               <circle cx={0} cy={-4} r={4} fill={selected ? color : "var(--wire-idle)"} />
               <text x={9} y={0} className="t-strand" style={{ fill: selected ? "var(--text-2)" : "var(--text-3)" }}>
-                {o.name}
+                {label}
               </text>
               {st === "attested" && (
                 <path
@@ -349,7 +369,7 @@ function Leg({
         );
       })}
       <g data-testid={`junction-${name}`} data-attested={L.attested} data-threshold={k}>
-        <circle cx={jx} cy={y} r={22} className="junction" stroke={jStroke} />
+        <circle cx={jx} cy={y} r={JUNCTION_R} className="junction" stroke={jStroke} />
         {total > 0 ? (
           <>
             <text x={jx} y={y + 1} textAnchor="middle" className="t-junction">
@@ -377,6 +397,31 @@ function Leg({
   );
 }
 
+/** A connector's arrow: a wire's takes the wire's state colour, a strand's its oracle colour (red if it failed). */
+function ArrowMark({ c, model }: { c: Connector; model: CircuitModel }) {
+  const { x, y, angle } = c.arrow;
+  const common = {
+    d: ARROW_PATH,
+    transform: `translate(${+x.toFixed(2)} ${+y.toFixed(2)}) rotate(${+angle.toFixed(2)})`,
+    "data-testid": `arrow-${c.id}`,
+    "data-from": c.from,
+    "data-to": c.to,
+    "data-direction": c.heading,
+  };
+  if (c.kind === "wire") return <path {...common} className={`arrow ${STATE_CLS[c.state]}`} data-state={c.state} />;
+  const L = c.leg === "dispute" ? model.dispute : model.ruling;
+  const failed = c.strand === "fail";
+  return (
+    <path
+      {...common}
+      className={failed ? "arrow fail" : "arrow"}
+      stroke={failed ? undefined : oracleColor(c.oracle)}
+      opacity={strandArrowOpacity(c.strand, c.leg, L.status)}
+      data-state={c.strand}
+    />
+  );
+}
+
 export const Circuit: React.FC<{ model: CircuitModel; names: ChainNames; label: string }> = ({
   model,
   names,
@@ -389,13 +434,15 @@ export const Circuit: React.FC<{ model: CircuitModel; names: ChainNames; label: 
   }, []);
   const reduceMotion = () => window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
   const by = (dx: number) => scroll.current?.scrollBy({ left: dx, behavior: reduceMotion() ? "auto" : "smooth" });
-  const s = model.nodes;
+  const connectors = circuitConnectors(model);
+  // The arrows are decorative: the circuit's description says the order of travel in words; its name stays short.
+  const descId = useId();
   const bulbColor =
     model.bulb === "on" ? "var(--bulb-on)" : model.bulb === "waiting" ? "var(--purple-2)" : model.bulb === "unknown" ? "var(--text-3)" : "var(--text-2)";
   return (
     <>
       <Controls>
-        <p>Use the arrows or swipe to follow the whole circuit.</p>
+        <p>Use the scroll buttons or swipe to follow the whole circuit.</p>
         <IconButton type="button" aria-label="Scroll the circuit left" onClick={() => by(-260)}>
           <Icon.left />
         </IconButton>
@@ -404,29 +451,37 @@ export const Circuit: React.FC<{ model: CircuitModel; names: ChainNames; label: 
         </IconButton>
       </Controls>
       <Scroll ref={scroll} data-testid="circuit-scroll" tabIndex={0} role="region" aria-label="Circuit, scrolls sideways">
-        <Svg viewBox="0 0 1000 380" role="img" aria-label={label} data-testid="circuit">
+        <Svg viewBox="0 0 1000 380" role="img" aria-label={label} aria-describedby={descId} data-testid="circuit">
+          <desc id={descId}>{travelOrder(model)}</desc>
           <text x={180} y={32} className="t-lane">{`Request leg · ${names.foreign} → ${names.home}`}</text>
-          <text x={180} y={368} className="t-lane">{`Decision leg · ${names.home} → ${names.foreign}`}</text>
-          <path d={`M95 ${MID - 88} V${TOP} H180`} className={wireCls(s.foreignOut === "idle" ? "idle" : "done")} />
-          <path d={`M180 ${BOT} H95 V${MID + 82}`} className={wireCls(s.foreignIn === "done" ? "done" : "idle")} />
-          <Node k="foreignOut" x={180} y={TOP} model={model} />
-          <Node k="homeIn" x={650} y={TOP} model={model} />
-          <Node k="court" x={830} y={MID} model={model} />
-          <Node k="homeOut" x={650} y={BOT} model={model} />
-          <Node k="foreignIn" x={180} y={BOT} model={model} />
-          <path d={`M800 ${TOP} H905 V${MID - 40}`} className={wireCls(wireBetween(s.homeIn, s.court))} />
-          <path d={`M905 ${MID + 40} V${BOT} H800`} className={wireCls(wireBetween(s.court, s.homeOut))} />
-          <Leg name="dispute" model={model} L={model.dispute} x0={336} x1={568} y={TOP} jx={590} dir={1} />
-          <path
-            d={`M612 ${TOP} H650`}
-            className={wireCls(s.homeIn === "idle" ? "idle" : s.homeIn === "fail" ? "fail" : "done")}
-          />
-          <Leg name="ruling" model={model} L={model.ruling} x0={650} x1={408} y={BOT} jx={386} dir={-1} />
-          <path
-            d={`M336 ${BOT} H364`}
-            className={wireCls(s.foreignIn === "idle" ? "idle" : s.foreignIn === "fail" ? "fail" : "done")}
-          />
-          <Bulb cx={95} cy={MID} state={model.bulb} testId="circuit-bulb" />
+          {/* the bottom lane runs right to left: its title's arrow points the way its arrows do */}
+          <text x={180} y={368} className="t-lane">{`Decision leg · ${names.foreign} ← ${names.home}`}</text>
+          {connectors.map(
+            (c) =>
+              c.kind === "wire" && (
+                <path
+                  key={c.id}
+                  d={c.d}
+                  className={`wire ${STATE_CLS[c.state]}`}
+                  data-testid={`wire-${c.id}`}
+                  data-from={c.from}
+                  data-to={c.to}
+                />
+              ),
+          )}
+          <Node k="foreignOut" model={model} />
+          <Node k="homeIn" model={model} />
+          <Node k="court" model={model} />
+          <Node k="homeOut" model={model} />
+          <Node k="foreignIn" model={model} />
+          <Leg name="dispute" model={model} L={model.dispute} />
+          <Leg name="ruling" model={model} L={model.ruling} />
+          <g aria-hidden="true">
+            {connectors.map((c) => (
+              <ArrowMark key={c.id} c={c} model={model} />
+            ))}
+          </g>
+          <Bulb cx={BULB_AT.cx} cy={BULB_AT.cy} state={model.bulb} testId="circuit-bulb" />
           <text x={200} y={MID - 2} className="t-bulb" style={{ fill: bulbColor }} data-testid="bulb-label">
             {model.bulbLabel[0]}
           </text>
