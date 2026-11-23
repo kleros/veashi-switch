@@ -43,6 +43,16 @@ export const LEG_AT: Record<LegName, LegGeometry> = {
 /** The strand of oracle row i of n: its height on the straight run. */
 export const strandY = (g: LegGeometry, i: number, n: number) => g.y + (i - (n - 1) / 2) * GAP_Y;
 
+/** Where an oracle's label (its dot) starts on a leg: just past the fan-out, so it grows toward the junction. */
+export const labelX = (g: LegGeometry) => (g.dir > 0 ? g.x0 : g.x1) + 78;
+
+/**
+ * The longest oracle name a label shows in full. On the decision leg the label grows toward that strand's arrow, and
+ * a longer name with its ✓ would run into it; a longer name is cut with an ellipsis (the full name is its tooltip).
+ */
+export const LABEL_MAX = 11;
+export const strandLabel = (name: string) => (name.length > LABEL_MAX ? `${name.slice(0, LABEL_MAX - 1).trimEnd()}…` : name);
+
 // A strand fans out from the sending node over 70 units, runs straight, and gathers into the junction over 70.
 const FAN = 70;
 const FAN_CTRL = 40;

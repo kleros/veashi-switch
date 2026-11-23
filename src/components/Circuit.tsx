@@ -8,12 +8,14 @@ import {
   BULB_AT,
   circuitConnectors,
   JUNCTION_R,
+  labelX,
   LEG_AT,
   MID,
   NODE_AT,
   NODE_H,
   NODE_W,
   strandArrowOpacity,
+  strandLabel,
   strandOpacity,
   strandPath,
   strandY,
@@ -309,7 +311,7 @@ function Node({ k, model }: { k: NodeKey; model: CircuitModel }) {
 
 function Leg({ name, model, L }: { name: LegName; model: CircuitModel; L: LegModel }) {
   const g = LEG_AT[name];
-  const { x0, x1, y, jx, dir } = g;
+  const { y, jx, dir } = g;
   const n = model.oracles.length;
   const k = model.threshold;
   const total = model.selected.length;
@@ -330,16 +332,18 @@ function Leg({ name, model, L }: { name: LegName; model: CircuitModel; L: LegMod
         const st = selected ? (L.oracles[o.id] ?? "ready") : "off";
         const d = strandPath(g, oy);
         const color = oracleColor(o.id);
-        const lx = dir > 0 ? x0 + 78 : x1 + 78;
-        const tx = 9 + o.name.length * 7.4 + 6;
+        const lx = labelX(g);
+        const label = strandLabel(o.name);
+        const tx = 9 + label.length * 7.4 + 6;
         return (
           <g key={o.id} data-testid={`strand-${name}-${o.id}`} data-state={st}>
             <path d={d} className={`strand ${st}`} stroke={color} opacity={strandOpacity(st, name, L.status)} />
             {st === "pending" && <path d={d} className="pulse" stroke={color} />}
             <g transform={`translate(${lx} ${oy - 6})`}>
+              {label !== o.name && <title>{o.name}</title>}
               <circle cx={0} cy={-4} r={4} fill={selected ? color : "var(--wire-idle)"} />
               <text x={9} y={0} className="t-strand" style={{ fill: selected ? "var(--text-2)" : "var(--text-3)" }}>
-                {o.name}
+                {label}
               </text>
               {st === "attested" && (
                 <path

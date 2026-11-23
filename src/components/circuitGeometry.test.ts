@@ -8,11 +8,14 @@ import {
   BULB_AT,
   circuitConnectors,
   JUNCTION_R,
+  LABEL_MAX,
+  labelX,
   LEG_AT,
   NODE_AT,
   NODE_H,
   NODE_W,
   strandArrowOpacity,
+  strandLabel,
   strandOpacity,
   strandPath,
   strandY,
@@ -26,6 +29,8 @@ const mkOracles = (list: string[]): Oracle[] =>
   list.map((name, id) => ({ id, name, via: `${name}Reporter · ${name}Adapter`, enabled: true, bridgingCostWei: 1n }));
 const four = mkOracles(["Vea", "CCIP", "LayerZero", "deBridge"]);
 const three = mkOracles(["CCIP", "layer-zero", "Axelar"]);
+// the longest name shown in full (LABEL_MAX), and a longer one, cut
+const long = mkOracles(["Wormhole V2", "Chainlink CCIPv2", "Axelar"]);
 
 const tx = (stage: StageTx["stage"], chain: StageTx["chain"], n: number): StageTx => ({
   stage,
@@ -95,6 +100,15 @@ const CASES: [string, CircuitModel][] = [
   [
     "done, ruling refused",
     requestModel(req("switched", { homeDisputeId: 0n, ruling: 0, txs: [sent, received, ruled, switched], reports: dOk }), four, names, { kind: "known", on: false }),
+  ],
+  [
+    "done, long oracle names reported on both legs",
+    requestModel(
+      req("switched", { homeDisputeId: 0n, ruling: 1, txs: [sent, received, ruled, switched], reports: [...dOk, ...rep("ruling", "reported", 0, 1)] }),
+      long,
+      names,
+      { kind: "known", on: true },
+    ),
   ],
   [
     "done (testnet oracles)",
@@ -284,10 +298,10 @@ describe("circuitConnectors", () => {
           const tl = Math.hypot(p1.x - p0.x, p1.y - p0.y);
           const ang = (c.arrow.angle * Math.PI) / 180;
           expect(((p1.x - p0.x) / tl) * Math.cos(ang) + ((p1.y - p0.y) / tl) * Math.sin(ang), `${c.id}: along the strand`).toBeGreaterThan(0.999);
-          // and clear of the oracle label (dot, name and check: Circuit.tsx), with 4 units to spare
+          // and clear of the oracle label (dot, name as shown and its ✓ or ✕: Circuit.tsx), with 4 units to spare
           const xs = chevron(c).map((p) => p.x);
-          const lx = g.dir > 0 ? g.x0 + 78 : g.x1 + 78;
-          const labelEnd = lx + 9 + model.oracles[i].name.length * 7.4 + 6 + 9;
+          const lx = labelX(g);
+          const labelEnd = lx + 9 + strandLabel(model.oracles[i].name).length * 7.4 + 6 + 9;
           if (g.dir > 0) expect(Math.max(...xs) + 1, c.id).toBeLessThan(lx - 4 - 4);
           else expect(Math.min(...xs) - 1, c.id).toBeGreaterThan(labelEnd + 4);
         }
@@ -346,6 +360,7 @@ describe("circuitConnectors", () => {
     "decision leg live": "done done done done idle idle",
     "decision leg, 2 of 2: Bulb updated next": "done done done done done idle",
     "done, ruling refused": "done done done done done done",
+    "done, long oracle names reported on both legs": "done done done done done done",
     "done (testnet oracles)": "done done done done done done",
     "paused on the request leg": "done idle idle idle idle idle",
     "paused at delivery": "done fail fail idle idle idle",
@@ -386,6 +401,17 @@ describe("circuitConnectors", () => {
     expect(strandArrowOpacity("pending", "ruling", "live")).toBe(0.85);
     expect(strandArrowOpacity("attested", "dispute", "done")).toBe(1);
     expect(strandArrowOpacity("fail", "dispute", "fail")).toBe(1);
+  });
+});
+
+describe("strandLabel", () => {
+  it("shows a name of up to LABEL_MAX characters in full and cuts a longer one with an ellipsis", () => {
+    expect(LABEL_MAX).toBe(11);
+    expect(strandLabel("layer-zero")).toBe("layer-zero");
+    expect(strandLabel("Wormhole V2")).toBe("Wormhole V2");
+    expect(strandLabel("Chainlink CCIPv2")).toBe("Chainlink…");
+    expect(strandLabel("Hyperlane Bridge")).toBe("Hyperlane…");
+    for (const name of ["Chainlink CCIPv2", "abcdefghijklmnopqrstuvwxyz"]) expect(strandLabel(name).length).toBeLessThanOrEqual(LABEL_MAX);
   });
 });
 
