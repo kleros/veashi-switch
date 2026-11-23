@@ -180,6 +180,9 @@ async function arrowProblems(page: Page): Promise<{ problems: string[]; checked:
           else if (ca.stroke !== arrowColour[state as keyof typeof arrowColour])
             problems.push(`${e.id}: arrow ${ca.stroke} on a ${state} wire (${arrowColour[state as keyof typeof arrowColour]} expected)`);
           if (opacity !== 1) problems.push(`${e.id}: arrow opacity ${opacity}`);
+        } else if (path.classList.contains("fail")) {
+          // a failed strand (dotted, ✕ on its label): its arrow is red and solid, as a failed wire's is
+          if (ca.stroke !== arrowColour.fail || opacity !== 1) problems.push(`${e.id}: a failed strand's arrow is ${ca.stroke} at ${opacity}`);
         } else {
           if (ca.stroke !== cp.stroke) problems.push(`${e.id}: arrow ${ca.stroke}, its strand ${cp.stroke}`);
           const want = Math.max(Number(cp.opacity), 0.85);

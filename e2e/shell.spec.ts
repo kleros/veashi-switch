@@ -152,7 +152,7 @@ test("layout at 375 px in dark and light, the circuit scrolls sideways, the bulb
   await page.emulateMedia({ reducedMotion: "reduce" });
   await page.goto("/");
   await showCircuit(page);
-  await expect(page.getByText("Use the arrows or swipe to follow the whole circuit.")).toBeVisible();
+  await expect(page.getByText("Use the scroll buttons or swipe to follow the whole circuit.")).toBeVisible();
   const scroll = page.getByTestId("circuit-scroll");
   const overflow = await scroll.evaluate((el) => ({ sw: el.scrollWidth, cw: el.clientWidth }));
   expect(overflow.sw).toBeGreaterThan(overflow.cw);

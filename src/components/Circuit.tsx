@@ -393,7 +393,7 @@ function Leg({ name, model, L }: { name: LegName; model: CircuitModel; L: LegMod
   );
 }
 
-/** A connector's arrow: a wire's takes the wire's state colour, a strand's its oracle colour. */
+/** A connector's arrow: a wire's takes the wire's state colour, a strand's its oracle colour (red if it failed). */
 function ArrowMark({ c, model }: { c: Connector; model: CircuitModel }) {
   const { x, y, angle } = c.arrow;
   const common = {
@@ -406,11 +406,12 @@ function ArrowMark({ c, model }: { c: Connector; model: CircuitModel }) {
   };
   if (c.kind === "wire") return <path {...common} className={`arrow ${STATE_CLS[c.state]}`} data-state={c.state} />;
   const L = c.leg === "dispute" ? model.dispute : model.ruling;
+  const failed = c.strand === "fail";
   return (
     <path
       {...common}
-      className="arrow"
-      stroke={oracleColor(c.oracle)}
+      className={failed ? "arrow fail" : "arrow"}
+      stroke={failed ? undefined : oracleColor(c.oracle)}
       opacity={strandArrowOpacity(c.strand, c.leg, L.status)}
       data-state={c.strand}
     />
@@ -437,7 +438,7 @@ export const Circuit: React.FC<{ model: CircuitModel; names: ChainNames; label: 
   return (
     <>
       <Controls>
-        <p>Use the arrows or swipe to follow the whole circuit.</p>
+        <p>Use the scroll buttons or swipe to follow the whole circuit.</p>
         <IconButton type="button" aria-label="Scroll the circuit left" onClick={() => by(-260)}>
           <Icon.left />
         </IconButton>
@@ -448,7 +449,8 @@ export const Circuit: React.FC<{ model: CircuitModel; names: ChainNames; label: 
       <Scroll ref={scroll} data-testid="circuit-scroll" tabIndex={0} role="region" aria-label="Circuit, scrolls sideways">
         <Svg viewBox="0 0 1000 380" role="img" aria-label={name} data-testid="circuit">
           <text x={180} y={32} className="t-lane">{`Request leg · ${names.foreign} → ${names.home}`}</text>
-          <text x={180} y={368} className="t-lane">{`Decision leg · ${names.home} → ${names.foreign}`}</text>
+          {/* the bottom lane runs right to left: its title's arrow points the way its arrows do */}
+          <text x={180} y={368} className="t-lane">{`Decision leg · ${names.foreign} ← ${names.home}`}</text>
           {connectors.map(
             (c) =>
               c.kind === "wire" && (

@@ -385,6 +385,7 @@ describe("circuitConnectors", () => {
     expect(strandArrowOpacity("ready", "dispute", "done")).toBe(0.85);
     expect(strandArrowOpacity("pending", "ruling", "live")).toBe(0.85);
     expect(strandArrowOpacity("attested", "dispute", "done")).toBe(1);
+    expect(strandArrowOpacity("fail", "dispute", "fail")).toBe(1);
   });
 });
 

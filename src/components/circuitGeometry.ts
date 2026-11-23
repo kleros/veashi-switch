@@ -225,9 +225,12 @@ export function strandOpacity(st: StrandState, leg: LegName, legStatus: LegModel
  */
 export const ARROW_MIN_OPACITY = 0.85;
 
-/** The opacity of a strand's arrow: its strand's, raised to ARROW_MIN_OPACITY. */
+/**
+ * The opacity of a strand's arrow: its strand's, raised to ARROW_MIN_OPACITY. A failed strand's arrow is drawn red and
+ * solid instead (Circuit.tsx), as a failed wire's is: the message was sent that way and did not arrive.
+ */
 export function strandArrowOpacity(st: StrandState, leg: LegName, legStatus: LegModel["status"]): number {
-  return Math.max(strandOpacity(st, leg, legStatus), ARROW_MIN_OPACITY);
+  return st === "fail" ? 1 : Math.max(strandOpacity(st, leg, legStatus), ARROW_MIN_OPACITY);
 }
 
 /** The order of travel in one plain sentence, for the circuit's accessible name. */
