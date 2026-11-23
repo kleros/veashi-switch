@@ -24,7 +24,7 @@ const ScrollTop: React.FC = () => {
 export type Boot = { setup: AppSetup; error?: undefined } | { setup?: undefined; error: string };
 
 const SetupError: React.FC<{ error: string }> = ({ error }) => {
-  const copy = setupCopy(error);
+  const copy = setupCopy();
   return (
     <>
       <TopBar />

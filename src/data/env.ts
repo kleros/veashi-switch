@@ -22,17 +22,6 @@ export interface ParsedDevnetEnv {
   testWallet: boolean; // always false on a testnet
 }
 
-/** Starts every NotConfiguredError message, so the boot screen can recognise it once it is only a string. */
-export const NOT_CONFIGURED_PREFIX = "Not connected to contracts yet.";
-
-/** Thrown when the testnet config still has placeholder addresses: the site is deployed but not wired up yet. */
-export class NotConfiguredError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = "NotConfiguredError";
-  }
-}
-
 /** The only public chains a testnet config may point at; mainnets are refused on purpose. */
 export const TESTNET_CHAINS: Readonly<Record<number, string>> = {
   84532: "Base Sepolia",
@@ -40,7 +29,7 @@ export const TESTNET_CHAINS: Readonly<Record<number, string>> = {
   11155111: "Sepolia",
 };
 
-/** Contracts the app cannot work without. */
+/** Contracts the app cannot work without (enforced for devnet.json; a testnet config may leave them blank). */
 export const REQUIRED_ADDRESSES = {
   foreign: ["ForeignGateway", "GatewayLightbulb", "USDC", "Yaho", "Yaru"],
   home: ["HomeGateway", "KlerosCoreRuler", "Yaho", "Yaru"],
@@ -125,8 +114,8 @@ function parseTestnetChain(value: unknown, key: "foreign" | "home"): DevnetChain
   };
 }
 
-/** Parses one chain's addresses; names of required contracts that are blank or zero go to `missing`. */
-function parseTestnetAddresses(value: unknown, key: "foreign" | "home", missing: string[]): Record<string, Address> {
+/** Parses one chain's addresses; blank or zero entries (not deployed yet) are left out. */
+function parseTestnetAddresses(value: unknown, key: "foreign" | "home"): Record<string, Address> {
   if (typeof value !== "object" || value === null) failTestnet(`"addresses.${key}" is missing`);
   const raw = value as Record<string, unknown>;
   const out: Record<string, Address> = {};
@@ -134,9 +123,6 @@ function parseTestnetAddresses(value: unknown, key: "foreign" | "home", missing:
     if (address === undefined || address === null || address === "") continue; // an unfilled placeholder
     if (typeof address !== "string" || !isAddress(address)) failTestnet(`"addresses.${key}.${name}" is not an address`);
     if (address.toLowerCase() !== zeroAddress) out[name] = address as Address;
-  }
-  for (const name of REQUIRED_ADDRESSES[key]) {
-    if (!out[name]) missing.push(`${key}.${name}`);
   }
   return out;
 }
@@ -147,17 +133,12 @@ function parseTestnetEnv(raw: Record<string, unknown>): ParsedDevnetEnv {
   if (foreign.chainId === home.chainId) failTestnet("both chains have the same chain id");
   const addresses = raw.addresses as Record<string, unknown> | undefined;
   if (typeof addresses !== "object" || addresses === null) failTestnet(`"addresses" is missing`);
-  const missing: string[] = [];
+  // Blank addresses are not a boot error: the site still renders, and each read of an unset contract fails where
+  // it is used, so the pages can be looked at before the contracts are deployed.
   const parsed = {
-    foreign: parseTestnetAddresses(addresses.foreign, "foreign", missing),
-    home: parseTestnetAddresses(addresses.home, "home", missing),
+    foreign: parseTestnetAddresses(addresses.foreign, "foreign"),
+    home: parseTestnetAddresses(addresses.home, "home"),
   };
-  if (missing.length > 0) {
-    throw new NotConfiguredError(
-      `${NOT_CONFIGURED_PREFIX} The contract addresses for ${foreign.name} and ${home.name} are not set yet ` +
-        `(missing: ${missing.join(", ")}). They go in config/testnet.json.`,
-    );
-  }
   return { kind: "testnet", foreign, home, addresses: parsed, testWallet: false };
 }
 
