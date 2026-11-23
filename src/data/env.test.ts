@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { explorerTxUrl, isLocalRpcUrl, parseDevnetEnv } from "./env";
-import { loadDevnetEnv, loadEnv } from "./index";
+import { SwitchError } from "./errors";
+import { createSwitchData, createWagmiConfig, loadDevnetEnv, loadEnv, missingContracts } from "./index";
 import { A, sampleEnv } from "./testing";
 
 describe("DevnetEnv parsing", () => {
@@ -162,6 +163,19 @@ describe("loadEnv on a testnet build", () => {
     expect(env.kind).toBe("testnet");
     expect(env.foreign.chainId).toBe(84532);
     expect(env.home.chainId).toBe(421614);
+    expect(fetch).not.toHaveBeenCalled();
+  });
+  it("with the shipped placeholders, every read rejects naming the unset contracts and nothing reaches an RPC", async () => {
+    vi.stubEnv("VITE_VEASHI_NETWORK", "testnet");
+    vi.stubGlobal("fetch", vi.fn());
+    const env = await loadEnv();
+    const data = createSwitchData(env, createWagmiConfig(env));
+    expect(missingContracts(env)).toContain("foreign.ForeignGateway");
+    expect(data.chains().foreign.id).toBe(84532);
+    await expect(data.oracles()).rejects.toBeInstanceOf(SwitchError);
+    await expect(data.requests(A(1))).rejects.toThrow(/foreign\.GatewayLightbulb.*config\/testnet\.json/);
+    await expect(data.request(1n)).rejects.toThrow(/not set up on the test networks yet/);
+    expect(data.watchRequest(1n, () => {})).toBeTypeOf("function");
     expect(fetch).not.toHaveBeenCalled();
   });
   it("still validates an RPC override as https", async () => {
