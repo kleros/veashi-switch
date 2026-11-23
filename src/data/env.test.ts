@@ -156,19 +156,23 @@ describe("loadEnv on a testnet build", () => {
     vi.unstubAllGlobals();
   });
 
-  it("reads the bundled config, never /devnet.json, and boots even with the shipped placeholders", async () => {
+  it("reads the bundled config, never /devnet.json, and every required contract is set in it", async () => {
     vi.stubEnv("VITE_VEASHI_NETWORK", "testnet");
     vi.stubGlobal("fetch", vi.fn());
     const env = await loadEnv();
     expect(env.kind).toBe("testnet");
     expect(env.foreign.chainId).toBe(84532);
     expect(env.home.chainId).toBe(421614);
+    expect(missingContracts(env)).toEqual([]);
     expect(fetch).not.toHaveBeenCalled();
   });
-  it("with the shipped placeholders, every read rejects naming the unset contracts and nothing reaches an RPC", async () => {
-    vi.stubEnv("VITE_VEASHI_NETWORK", "testnet");
+  it("with blank contract addresses, every read rejects naming the unset contracts and nothing reaches an RPC", async () => {
     vi.stubGlobal("fetch", vi.fn());
-    const env = await loadEnv();
+    const json = testnetJson();
+    const addresses = json.addresses as { foreign: Record<string, string>; home: Record<string, string> };
+    for (const name of ["ForeignGateway", "GatewayLightbulb", "USDC"]) addresses.foreign[name] = "";
+    for (const name of ["HomeGateway", "KlerosCoreRuler"]) addresses.home[name] = "";
+    const env = parseDevnetEnv(json);
     const data = createSwitchData(env, createWagmiConfig(env));
     expect(missingContracts(env)).toContain("foreign.ForeignGateway");
     expect(data.chains().foreign.id).toBe(84532);
