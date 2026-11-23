@@ -1,6 +1,6 @@
 {
   "kind": "testnet",
-  "scannerUrl": "https://veashi-scanner.vercel.app",
+  "scannerUrl": "",
   "foreign": {
     "chainId": 84532,
     "name": "Base Sepolia",

@@ -212,7 +212,8 @@ describe("loadEnv on a testnet build", () => {
     expect(env.foreign.chainId).toBe(84532);
     expect(env.home.chainId).toBe(421614);
     expect(missingContracts(env)).toEqual([]);
-    expect(env.scannerUrl).toBe("https://veashi-scanner.vercel.app");
+    // Blank until the kleros/vea veashi-scanner has a public URL; either unset or an https base.
+    expect(env.scannerUrl === null || env.scannerUrl.startsWith("https://")).toBe(true);
     expect(fetch).not.toHaveBeenCalled();
   });
   it("with blank contract addresses, every read rejects naming the unset contracts and nothing reaches an RPC", async () => {
