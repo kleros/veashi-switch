@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { Address, ChainInfo, ChainKey, Hex, Oracle } from "../data";
 import { buildRequest, type LegFacts, type RequestFacts } from "../data/lifecycle";
-import { logEntries, scannerLink } from "./trackModel";
+import { logEntries, messageLinks, scannerLink } from "./trackModel";
 
 const h = (n: number) => `0x${n.toString(16).padStart(64, "0")}` as Hex;
 const OWNER: Address = "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266";
@@ -147,9 +147,10 @@ describe("scannerLink", () => {
       label: "View in Veashi Scanner: the creation failure, Arbitrum Sepolia to Base Sepolia (opens in a new tab)",
     });
     const ruling = logEntries(buildRequest(switched()), oracles, names).find((e) => e.key === "ruling-relaying")!;
-    expect(scannerLink(ruling, testnet)?.label).toBe(
-      "View in Veashi Scanner: the decision, Arbitrum Sepolia to Base Sepolia (opens in a new tab)",
-    );
+    expect(scannerLink(ruling, testnet)).toEqual({
+      href: `${SCANNER}/tx/421614/${RULING_TX}`,
+      label: "View in Veashi Scanner: the decision, Arbitrum Sepolia to Base Sepolia (opens in a new tab)",
+    });
   });
   it("gives no link on the steps without a leg", () => {
     for (const e of entries.filter((x) => !["dispute-relaying", "failure-relaying"].includes(x.key))) {
@@ -158,5 +159,37 @@ describe("scannerLink", () => {
   });
   it("gives no link without a scanner (the devnet)", () => {
     for (const e of entries) expect(scannerLink(e, devnet)).toBeNull();
+  });
+});
+
+describe("messageLinks (the request summary's links, in both views)", () => {
+  const links = (facts: RequestFacts, chains = testnet) => messageLinks(logEntries(buildRequest(facts), oracles, names), chains);
+
+  it("lists each known leg once, in step order, with its direction in the visible text", () => {
+    expect(links(closed())).toEqual([
+      {
+        key: "dispute-relaying",
+        href: `${SCANNER}/tx/84532/${REQUEST_TX}`,
+        text: "The request, Base Sepolia to Arbitrum Sepolia",
+        label: "The request, Base Sepolia to Arbitrum Sepolia, in Veashi Scanner (opens in a new tab)",
+      },
+      {
+        key: "failure-relaying",
+        href: `${SCANNER}/tx/421614/${FAILURE_TX}`,
+        text: "The creation failure, Arbitrum Sepolia to Base Sepolia",
+        label: "The creation failure, Arbitrum Sepolia to Base Sepolia, in Veashi Scanner (opens in a new tab)",
+      },
+    ]);
+    expect(links(switched()).map((l) => [l.key, l.href, l.text])).toEqual([
+      ["dispute-relaying", `${SCANNER}/tx/84532/${REQUEST_TX}`, "The request, Base Sepolia to Arbitrum Sepolia"],
+      ["ruling-relaying", `${SCANNER}/tx/421614/${RULING_TX}`, "The decision, Arbitrum Sepolia to Base Sepolia"],
+    ]);
+  });
+  it("the accessible name starts with the visible text", () => {
+    for (const l of [...links(closed()), ...links(switched())]) expect(l.label.startsWith(l.text)).toBe(true);
+  });
+  it("is empty before any message was dispatched, and always without a scanner (the devnet)", () => {
+    expect(links(base())).toEqual([]);
+    for (const facts of [relaying(), switched(), closed()]) expect(links(facts, devnet)).toEqual([]);
   });
 });

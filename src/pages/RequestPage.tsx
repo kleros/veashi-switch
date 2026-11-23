@@ -746,7 +746,6 @@ export const RequestPage: React.FC = () => {
     { n: 3, label: "Pay and send" },
   ];
 
-  const oraclesLoading = step === 2 && !oracles && !loadError;
   const continueReason =
     step === 2
       ? !oracles
@@ -975,9 +974,7 @@ export const RequestPage: React.FC = () => {
       <Footer>
         {continueReason && (
           <p className={selError ? "why err" : "why"} id="continue-reason" data-testid="continue-reason">
-            Continue is unavailable:{" "}
-            {/* the loading state is announced once, by the selection summary above */}
-            {oraclesLoading ? <Loader live={false} label={continueReason} /> : continueReason}
+            Continue is unavailable: {continueReason}
           </p>
         )}
         <LibButton variant="secondary" type="button" text="Back" onClick={() => goTo(1)} data-testid="back" />

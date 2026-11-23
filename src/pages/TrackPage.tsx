@@ -26,6 +26,7 @@ import {
   actionModels,
   DECISION_SUBMITTED,
   logEntries,
+  messageLinks,
   nowModel,
   pausedModel,
   scannerLink,
@@ -478,6 +479,25 @@ const Facts = styled.dl`
     margin: 0;
     overflow-wrap: anywhere;
     font-weight: 600;
+  }
+  > .links {
+    grid-column: span 2;
+  }
+  .links ul {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: grid;
+    gap: 4px;
+  }
+  .links li {
+    padding: 2px 0;
+  }
+  .links svg {
+    width: 14px;
+    height: 14px;
+    margin-left: 6px;
+    vertical-align: -2px;
   }
   @media (max-width: 1023px) {
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -1204,11 +1224,13 @@ const Tracked: React.FC<{ id: bigint }> = ({ id }) => {
       seen.current.set(e.key, firstRender.current ? 0 : now);
   if (req) firstRender.current = false;
 
+  // Without a status line (loading, error, not found) the head keeps that line's space, so it has one height from
+  // the loading state to whatever replaces it.
   const head = (title: React.ReactNode, status?: React.ReactNode) => (
     <Head>
       <div className="titles">
         <h1 data-testid="track-title">{title}</h1>
-        {status}
+        {status ?? <span className="status-space" aria-hidden="true" />}
       </div>
       <FindRequest current={id} stage={req?.stage} />
     </Head>
@@ -1240,8 +1262,7 @@ const Tracked: React.FC<{ id: bigint }> = ({ id }) => {
   if (req === undefined)
     return (
       <Shell>
-        {/* the status line's space under the title, kept so the head does not grow when the request arrives */}
-        {head(`Request #${id.toString()}`, <span className="status-space" aria-hidden="true" />)}
+        {head(`Request #${id.toString()}`)}
         <RequestLoading data-testid="request-loading">
           <Loader size="lg" label="Loading the request…" />
         </RequestLoading>
@@ -1280,6 +1301,8 @@ const Tracked: React.FC<{ id: bigint }> = ({ id }) => {
   const reportsFor = (key: string) =>
     entries.filter((e) => e.report && e.report.leg === (key === "dispute-relaying" ? "dispute" : "ruling"));
   const legKeys = ["dispute-relaying", "ruling-relaying", "failure-relaying"];
+  // the legs' messages in Veashi Scanner, in the summary too: the Circuit view has no step rows (testnet only)
+  const scans = messageLinks(stageEntries, data.chains());
 
   const statusLine = (
     <Status $tone={n.status} data-testid="track-stage" data-stage={req.stage}>
@@ -1329,8 +1352,7 @@ const Tracked: React.FC<{ id: bigint }> = ({ id }) => {
               <>
                 <dt>{n.bulbNow.label}</dt>
                 <dd data-testid="bulb-now">
-                  {/* the panel is the live region already */}
-                  {bulbRead.kind === "loading" ? <Loader live={false} label={n.bulbNow.value} /> : n.bulbNow.value}
+                  {n.bulbNow.value}
                   {n.bulbNow.differs && <span className="differs"> · {n.bulbNow.differs}</span>}
                 </dd>
               </>
@@ -1502,6 +1524,29 @@ const Tracked: React.FC<{ id: bigint }> = ({ id }) => {
                     : "Not created yet"}
               </dd>
             </div>
+            {scans.length > 0 && (
+              <div className="wide links" data-testid="summary-scanner-links">
+                <dt>Cross-chain messages (Veashi Scanner)</dt>
+                <dd>
+                  <ul>
+                    {scans.map((l) => (
+                      <li key={l.key}>
+                        <a
+                          href={l.href}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          aria-label={l.label}
+                          data-testid={`summary-scanner-${l.key}`}
+                        >
+                          {l.text}
+                          <Icon.external />
+                        </a>
+                      </li>
+                    ))}
+                  </ul>
+                </dd>
+              </div>
+            )}
           </Facts>
           <Disclosure summary="Technical details" data-testid="technical-details">
             <div style={{ display: "grid", gap: 14 }}>

@@ -160,6 +160,10 @@ describe("Veashi Scanner config", () => {
     expect(parseDevnetEnv(withScanner(`${SCANNER}//`)).scannerUrl).toBe(SCANNER);
     expect(parseDevnetEnv(withScanner("https://scan.example/veashi/")).scannerUrl).toBe("https://scan.example/veashi");
   });
+  it("keeps the parsed URL, not the raw text: surrounding whitespace is dropped", () => {
+    expect(parseDevnetEnv(withScanner(" https://x.example ")).scannerUrl).toBe("https://x.example");
+    expect(parseDevnetEnv(withScanner("https://x.example\t")).scannerUrl).toBe("https://x.example");
+  });
   it("is optional: absent, null or blank means no scanner", () => {
     expect(parseDevnetEnv(testnetJson()).scannerUrl).toBeNull();
     expect(parseDevnetEnv(withScanner(null)).scannerUrl).toBeNull();
@@ -169,7 +173,7 @@ describe("Veashi Scanner config", () => {
     for (const bad of ["http://veashi-scanner.vercel.app", "ftp://x.example", "javascript:alert(1)", "veashi-scanner.vercel.app", 42, true]) {
       expect(() => parseDevnetEnv(withScanner(bad))).toThrow(/scannerUrl.*https/);
     }
-    for (const bad of [`${SCANNER}/?x=1`, `${SCANNER}#top`]) {
+    for (const bad of [`${SCANNER}/?x=1`, `${SCANNER}#top`, "https://x.example/?", "https://x.example#"]) {
       expect(() => parseDevnetEnv(withScanner(bad))).toThrow(/scannerUrl.*query or a fragment/);
     }
   });

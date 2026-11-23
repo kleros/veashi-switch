@@ -102,9 +102,10 @@ function parseFromBlock(value: unknown, key: string): bigint {
 function parseScannerUrl(value: unknown): string | null {
   if (value === undefined || value === null || value === "") return null;
   if (typeof value !== "string" || !isHttpsUrl(value)) failTestnet(`"scannerUrl" must be an https URL`);
+  // a bare "?" or "#" leaves URL.search and URL.hash empty, so the raw text is checked; the parsed URL is what is kept
+  if (/[?#]/.test(value)) failTestnet(`"scannerUrl" must not have a query or a fragment`);
   const url = new URL(value);
-  if (url.search || url.hash) failTestnet(`"scannerUrl" must not have a query or a fragment`);
-  return value.replace(/\/+$/, "");
+  return `${url.origin}${url.pathname}`.replace(/\/+$/, "");
 }
 
 function parseTestnetChain(value: unknown, key: "foreign" | "home"): DevnetChainEnv {

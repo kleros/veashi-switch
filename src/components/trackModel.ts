@@ -80,6 +80,23 @@ export function scannerLink(
   return { href: url(e.source.tx.hash), label: `View in Veashi Scanner: ${e.source.name} (opens in a new tab)` };
 }
 
+/**
+ * The request's cross-chain messages in Veashi Scanner, for the request summary (shown in both the Steps and the
+ * Circuit view): one link per leg whose dispatching transaction is known, in step order; empty without a scanner. The
+ * visible text names the leg and its direction, and the accessible name starts with it.
+ */
+export function messageLinks(
+  entries: Pick<LogEntry, "key" | "source">[],
+  chains: Record<ChainKey, Pick<ChainInfo, "scannerTxUrl">>,
+): { key: string; href: string; text: string; label: string }[] {
+  return entries.flatMap((e) => {
+    const link = scannerLink(e, chains);
+    if (!link || !e.source) return [];
+    const text = e.source.name.charAt(0).toUpperCase() + e.source.name.slice(1);
+    return [{ key: e.key, href: link.href, text, label: `${text}, in Veashi Scanner (opens in a new tab)` }];
+  });
+}
+
 /** A plain name for a step's transaction; the contract call itself stays under "Technical details". */
 export const txName = (t: StageTx) =>
   t.label === "executeMessages" ? "Delivery" : t.label === "claimRefund" ? "Refund claim" : TX_LABEL[t.stage];

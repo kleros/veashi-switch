@@ -8,40 +8,47 @@ import styled, { keyframes } from "styled-components";
 //
 // Geometry is in em of the mark's own font size, so one size prop scales the whole mark.
 
-const travel = keyframes`
-  0% { transform: translateX(0); opacity: 0; }
-  12% { opacity: 1; }
-  55% { transform: translateX(1.25em); opacity: 1; }
-  62%, 100% { transform: translateX(1.25em); opacity: 0; }
-`;
+/**
+ * The motion, shared word for word with the boot loader in index.html (Loader.test.ts checks the two are equal).
+ * - travel: the dot runs the strand at one speed and slides under the glass edge as it fades (it never parks).
+ * - glow: the lit bulb fades in as the dot arrives and out quickly, so the yellow-over-purple mix stays brief.
+ * - enter: the mark fades in after a short delay, so a state that ends within it (a quick re-quote) shows only its
+ *   label, as plain text did; the label itself shows at once.
+ */
+export const LOADER_MOTION = {
+  travel: "0% { transform: translateX(0); opacity: 0; } 12% { opacity: 1; } 55% { opacity: 1; } 64%, 100% { transform: translateX(1.45em); opacity: 0; }",
+  glow: "0%, 50% { opacity: 0; } 64% { opacity: 1; } 80%, 100% { opacity: 0; }",
+  enter: "from { opacity: 0; } to { opacity: 1; }",
+  /** One cycle, shared by the dot and the glow so the bulb lights as the dot arrives: the circuit pulse's 1.6s. */
+  cycle: "1.6s",
+  enterDuration: "200ms",
+  enterDelay: "150ms",
+} as const;
 
-const glow = keyframes`
-  0%, 50% { opacity: 0; }
-  64% { opacity: 1; }
-  100% { opacity: 0; }
-`;
+const travel = keyframes`${LOADER_MOTION.travel}`;
+const glow = keyframes`${LOADER_MOTION.glow}`;
+const enter = keyframes`${LOADER_MOTION.enter}`;
+const CYCLE = LOADER_MOTION.cycle;
 
-const enter = keyframes`
-  from { opacity: 0; }
-  to { opacity: 1; }
-`;
-
-/** One cycle, shared by the dot and the glow so the bulb lights as the dot arrives: the circuit pulse's 1.6s. */
-const CYCLE = "1.6s";
-
-/** Inline, in the text it replaces: the label keeps the surrounding font and colour. */
+/**
+ * Inline, in the text it replaces: the label keeps the surrounding font and colour. Aligned to the line's top, the
+ * box is as tall as the label's own line (the mark is shorter), so the line does not grow; in a box too narrow for
+ * both, the label wraps under the mark as whole words.
+ */
 const Root = styled.span<{ $size: "sm" | "lg" }>`
   display: inline-flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: ${({ $size }) => ($size === "lg" ? "14px" : "10px")};
-  vertical-align: middle;
+  gap: 4px ${({ $size }) => ($size === "lg" ? "14px" : "10px")};
+  max-width: 100%;
+  vertical-align: top;
   .mark {
     position: relative;
     flex: none;
     width: 2.75em;
     height: 1.25em;
     font-size: ${({ $size }) => ($size === "lg" ? "28px" : "16px")};
-    animation: ${enter} 200ms var(--ease-out) both;
+    animation: ${enter} ${LOADER_MOTION.enterDuration} var(--ease-out) ${LOADER_MOTION.enterDelay} both;
   }
   .strand {
     position: absolute;
