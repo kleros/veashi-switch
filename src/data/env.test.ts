@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { explorerTxUrl, isLocalRpcUrl, NotConfiguredError, parseDevnetEnv } from "./env";
-import { loadDevnetEnv, loadEnv } from "./index";
+import { explorerTxUrl, isLocalRpcUrl, parseDevnetEnv } from "./env";
+import { SwitchError } from "./errors";
+import { createSwitchData, createWagmiConfig, loadDevnetEnv, loadEnv, missingContracts } from "./index";
 import { A, sampleEnv } from "./testing";
 
 describe("DevnetEnv parsing", () => {
@@ -127,17 +128,18 @@ describe("testnet config parsing", () => {
       expect(() => parseDevnetEnv(json)).toThrow(/fromBlock/);
     }
   });
-  it("throws NotConfiguredError naming the missing contracts when addresses are placeholders", () => {
+  it("accepts placeholder contract addresses and leaves them out, so the site still boots", () => {
     const json = testnetJson();
     const addresses = json.addresses as { foreign: Record<string, string>; home: Record<string, string> };
     addresses.foreign.GatewayLightbulb = "";
     addresses.foreign.USDC = "0x0000000000000000000000000000000000000000";
     delete addresses.home.KlerosCoreRuler;
-    const run = () => parseDevnetEnv(json);
-    expect(run).toThrow(NotConfiguredError);
-    expect(run).toThrow(/foreign\.GatewayLightbulb, foreign\.USDC, home\.KlerosCoreRuler/);
-    expect(run).toThrow(/config\/testnet\.json/);
-    expect(run).not.toThrow(/yarn devnet/);
+    const env = parseDevnetEnv(json);
+    expect(env.kind).toBe("testnet");
+    expect(env.addresses.foreign.GatewayLightbulb).toBeUndefined();
+    expect(env.addresses.foreign.USDC).toBeUndefined();
+    expect(env.addresses.home.KlerosCoreRuler).toBeUndefined();
+    expect(env.addresses.foreign.ForeignGateway).toBe(addresses.foreign.ForeignGateway);
   });
   it("ignores blank optional addresses but rejects malformed ones", () => {
     const json = testnetJson();
@@ -154,10 +156,26 @@ describe("loadEnv on a testnet build", () => {
     vi.unstubAllGlobals();
   });
 
-  it("reads the bundled config, never /devnet.json, and reports the shipped placeholders as not configured", async () => {
+  it("reads the bundled config, never /devnet.json, and boots even with the shipped placeholders", async () => {
     vi.stubEnv("VITE_VEASHI_NETWORK", "testnet");
     vi.stubGlobal("fetch", vi.fn());
-    await expect(loadEnv()).rejects.toBeInstanceOf(NotConfiguredError);
+    const env = await loadEnv();
+    expect(env.kind).toBe("testnet");
+    expect(env.foreign.chainId).toBe(84532);
+    expect(env.home.chainId).toBe(421614);
+    expect(fetch).not.toHaveBeenCalled();
+  });
+  it("with the shipped placeholders, every read rejects naming the unset contracts and nothing reaches an RPC", async () => {
+    vi.stubEnv("VITE_VEASHI_NETWORK", "testnet");
+    vi.stubGlobal("fetch", vi.fn());
+    const env = await loadEnv();
+    const data = createSwitchData(env, createWagmiConfig(env));
+    expect(missingContracts(env)).toContain("foreign.ForeignGateway");
+    expect(data.chains().foreign.id).toBe(84532);
+    await expect(data.oracles()).rejects.toBeInstanceOf(SwitchError);
+    await expect(data.requests(A(1))).rejects.toThrow(/foreign\.GatewayLightbulb.*config\/testnet\.json/);
+    await expect(data.request(1n)).rejects.toThrow(/not set up on the test networks yet/);
+    expect(data.watchRequest(1n, () => {})).toBeTypeOf("function");
     expect(fetch).not.toHaveBeenCalled();
   });
   it("still validates an RPC override as https", async () => {

@@ -4,7 +4,6 @@ import { App, type Boot } from "./App";
 import type { AppSetup } from "./components/setup";
 import { plainError } from "./components/errors";
 import { createSwitchData, createWagmiConfig, loadEnv } from "./data";
-import { NotConfiguredError } from "./data/env";
 
 async function networkSetup(): Promise<AppSetup> {
   const env = await loadEnv();
@@ -22,8 +21,6 @@ async function boot(): Promise<Boot> {
     }
     return { setup: await networkSetup() };
   } catch (e) {
-    // Already plain language, and the boot screen recognises its prefix.
-    if (e instanceof NotConfiguredError) return { error: e.message };
     return { error: plainError(e) };
   }
 }

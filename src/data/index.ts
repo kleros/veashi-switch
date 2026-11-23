@@ -2,7 +2,8 @@
 // sibling files.
 import { createConfig, http, injected, mock, type Config, type CreateConnectorFn } from "wagmi";
 import { createChainSwitchData, DEV_ACCOUNT } from "./chain";
-import { parseDevnetEnv, type NetworkKind } from "./env";
+import { parseDevnetEnv, REQUIRED_ADDRESSES, type NetworkKind } from "./env";
+import { SwitchError } from "./errors";
 import { viemChains } from "./networks";
 import type { Address, SwitchData } from "./types";
 
@@ -83,7 +84,46 @@ export function createWagmiConfig(env: DevnetEnv): Config {
   });
 }
 
+/** Required contracts the config leaves unset, as "foreign.GatewayLightbulb"; only a testnet config can have any. */
+export function missingContracts(env: DevnetEnv): string[] {
+  return (["foreign", "home"] as const).flatMap((key) =>
+    REQUIRED_ADDRESSES[key].filter((name) => !env.addresses[key][name]).map((name) => `${key}.${name}`),
+  );
+}
+
+/**
+ * A testnet site whose contracts are not all set yet: the pages render, but every read and send rejects at once in
+ * plain language, so no call goes out with an empty address (an event search would then cover every contract).
+ */
+function unconfiguredSwitchData(base: SwitchData, missing: string[]): SwitchData {
+  const notSet = (): Promise<never> =>
+    Promise.reject(
+      new SwitchError(
+        `The Veashi contracts are not set up on the test networks yet: ${missing.join(", ")} ` +
+          `${missing.length === 1 ? "is" : "are"} not set in config/testnet.json.`,
+      ),
+    );
+  return {
+    chains: base.chains,
+    validateSelection: base.validateSelection,
+    oracles: notSet,
+    defaultSelection: notSet,
+    quote: notSet,
+    bulbIsOn: notSet,
+    usdcAllowance: notSet,
+    approveUsdc: notSet,
+    requestSwitch: notSet,
+    request: notSet,
+    requests: notSet,
+    watchRequest: () => () => {},
+    act: notSet,
+  };
+}
+
 /** The chain-backed SwitchData over viem clients for both devnet chains and the connected wallet. */
 export function createSwitchData(env: DevnetEnv, config: Config): SwitchData {
-  return createChainSwitchData(parseDevnetEnv(env), config);
+  const parsed = parseDevnetEnv(env);
+  const data = createChainSwitchData(parsed, config);
+  const missing = missingContracts(parsed);
+  return missing.length > 0 ? unconfiguredSwitchData(data, missing) : data;
 }
