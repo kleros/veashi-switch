@@ -4,6 +4,7 @@ import { previewModel, requestModel, type CircuitModel, type NodeKey } from "./c
 import {
   ARROW_BACK,
   ARROW_HALF,
+  ARROW_MIN_OPACITY,
   BULB_AT,
   circuitConnectors,
   JUNCTION_R,
@@ -11,6 +12,7 @@ import {
   NODE_AT,
   NODE_H,
   NODE_W,
+  strandArrowOpacity,
   strandOpacity,
   strandPath,
   strandY,
@@ -312,11 +314,16 @@ describe("circuitConnectors", () => {
     });
   });
 
-  it("gives a strand's arrow the strand's opacity", () => {
+  it("keeps the strands' opacities and draws a strand's arrow at no less than 0.85, so a faint strand still shows its way", () => {
     expect(strandOpacity("ready", "ruling", "ready")).toBe(0.35);
     expect(strandOpacity("ready", "dispute", "ready")).toBe(0.6);
     expect(strandOpacity("pending", "dispute", "live")).toBe(0.55);
     expect(strandOpacity("attested", "ruling", "done")).toBe(1);
+    expect(ARROW_MIN_OPACITY).toBe(0.85);
+    expect(strandArrowOpacity("ready", "ruling", "ready")).toBe(0.85);
+    expect(strandArrowOpacity("ready", "dispute", "done")).toBe(0.85);
+    expect(strandArrowOpacity("pending", "ruling", "live")).toBe(0.85);
+    expect(strandArrowOpacity("attested", "dispute", "done")).toBe(1);
   });
 });
 

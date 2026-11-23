@@ -35,6 +35,8 @@ function extend(base: typeof darkTheme, name: ThemeName) {
     bulbHalo: dark ? "rgba(255, 211, 107, 0.28)" : "rgba(255, 176, 0, 0.25)",
     bulbFilamentOn: "#8a5a00",
     wireIdle: dark ? "#4b3a8f" : "#d9cfee",
+    // An idle wire's arrow: the wire's hue, strong enough to read on the surface (4.9:1 dark, 4.2:1 light; 3:1 needed).
+    arrowIdle: dark ? "#8a78d8" : "#8270c0",
     shadow: dark ? "0 6px 24px rgba(8, 0, 30, 0.45)" : "0 6px 24px rgba(34, 0, 80, 0.08)",
     backdrop: dark ? "rgba(8, 0, 30, 0.6)" : "rgba(34, 0, 80, 0.25)",
     // Oracle strands by oracle id (Vea, CCIP, LayerZero, deBridge), checked for colour-vision contrast on the surface.
@@ -74,6 +76,7 @@ export function cssVars(t: AppTheme): string {
     "bulb-halo": t.bulbHalo,
     "bulb-filament-on": t.bulbFilamentOn,
     "wire-idle": t.wireIdle,
+    "arrow-idle": t.arrowIdle,
     shadow: t.shadow,
     backdrop: t.backdrop,
   };

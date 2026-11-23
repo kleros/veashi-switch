@@ -59,6 +59,39 @@ async function arrowProblems(page: Page): Promise<{ problems: string[]; checked:
       const nearest = (p: Pt, boxes: Box[]) => Math.min(...boxes.map((b) => distBox(p, b)));
       const unit = { right: [1, 0], left: [-1, 0], down: [0, 1], up: [0, -1] } as const;
 
+      // The theme's colours as the browser computes them (rgb), read through a probe: a wire's colour by its state,
+      // and its arrow's (an idle arrow is a stronger shade than its wire, so it still reads).
+      const probe = document.createElementNS("http://www.w3.org/2000/svg", "path");
+      svg.appendChild(probe);
+      const resolve = (v: string) => {
+        probe.style.stroke = v;
+        return getComputedStyle(probe).stroke;
+      };
+      const wireColour = { idle: resolve("var(--wire-idle)"), active: resolve("var(--purple-2)"), done: resolve("var(--ok)"), fail: resolve("var(--err)") };
+      const arrowColour = { ...wireColour, idle: resolve("var(--arrow-idle)") };
+      probe.remove();
+      // the card the circuit is drawn on: the first ancestor with a background
+      let ground = "rgb(255, 255, 255)";
+      for (let el: Element | null = svg; el; el = el.parentElement) {
+        const bg = getComputedStyle(el).backgroundColor;
+        if (bg && bg !== "transparent" && !/rgba\(.*, 0\)$/.test(bg)) {
+          ground = bg;
+          break;
+        }
+      }
+      const rgb = (c: string) => (c.match(/[\d.]+/g) ?? []).slice(0, 3).map(Number);
+      const lum = (c: number[]) => {
+        const [r, g, b] = c.map((v) => v / 255).map((v) => (v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4));
+        return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+      };
+      /** The contrast of a stroke at an opacity on the card. */
+      const contrast = (stroke: string, opacity: number) => {
+        const bg = rgb(ground);
+        const fg = rgb(stroke).map((v, i) => v * opacity + bg[i] * (1 - opacity));
+        const [hi, lo] = [lum(fg), lum(bg)].sort((x, y) => y - x);
+        return (hi + 0.05) / (lo + 0.05);
+      };
+
       const problems: string[] = [];
       const checked: string[] = [];
       const expected: { id: string; from: string; to: string; dir: keyof typeof unit; kind: "wire" | "strand"; path: SVGPathElement | null }[] = [];
@@ -135,14 +168,28 @@ async function arrowProblems(page: Page): Promise<{ problems: string[]; checked:
         if (!(nearest(tip, dst) < nearest(tail, dst))) problems.push(`${e.id}: does not point toward ${e.to}`);
         if (!(nearest(tip, src) > nearest(tail, src) || e.kind === "wire")) problems.push(`${e.id}: points back toward ${e.from}`);
 
-        // its colour is its wire's, solid, at the same opacity
+        // its colour: a wire's arrow is in the colour of its wire's state, read from the wire as drawn; a strand's
+        // arrow is in its strand's colour, never fainter than 0.85; solid, and at 3:1 or more on the card
         const ca = getComputedStyle(a);
         const cp = getComputedStyle(path);
-        if (ca.stroke !== cp.stroke) problems.push(`${e.id}: arrow ${ca.stroke}, its path ${cp.stroke}`);
-        if (ca.opacity !== cp.opacity) problems.push(`${e.id}: arrow opacity ${ca.opacity}, its path ${cp.opacity}`);
+        const opacity = Number(ca.opacity);
+        let state = a.dataset.state;
+        if (e.kind === "wire") {
+          state = (Object.keys(wireColour) as (keyof typeof wireColour)[]).find((k) => wireColour[k] === cp.stroke);
+          if (!state) problems.push(`${e.id}: the wire is ${cp.stroke}, no state's colour`);
+          else if (ca.stroke !== arrowColour[state as keyof typeof arrowColour])
+            problems.push(`${e.id}: arrow ${ca.stroke} on a ${state} wire (${arrowColour[state as keyof typeof arrowColour]} expected)`);
+          if (opacity !== 1) problems.push(`${e.id}: arrow opacity ${opacity}`);
+        } else {
+          if (ca.stroke !== cp.stroke) problems.push(`${e.id}: arrow ${ca.stroke}, its strand ${cp.stroke}`);
+          const want = Math.max(Number(cp.opacity), 0.85);
+          if (Math.abs(opacity - want) > 0.001) problems.push(`${e.id}: arrow opacity ${opacity}, ${want} expected (strand ${cp.opacity})`);
+        }
+        const cr = contrast(ca.stroke, opacity);
+        if (cr < 3) problems.push(`${e.id}: arrow contrast ${cr.toFixed(2)}:1 on ${ground}`);
         if (ca.strokeDasharray !== "none") problems.push(`${e.id}: the arrow is dashed`);
         if (ca.display === "none" || ca.visibility !== "visible") problems.push(`${e.id}: the arrow is hidden`);
-        checked.push(`${e.id}:${e.dir}:${a.dataset.state}`);
+        checked.push(`${e.id}:${e.dir}:${state}`);
         arrowBoxes.push({ id: e.id, box: boxOf(a, 1) });
       }
 
@@ -177,6 +224,24 @@ async function expectArrows(page: Page, label: string): Promise<string[]> {
 
 const stateOf = (checked: string[], id: string) => checked.find((c) => c.startsWith(`${id}:`))?.split(":")[2];
 
+/** In a high-contrast (forced colours) theme: the arrows not drawn in the system's text colour at full opacity. */
+async function forcedColourMisses(page: Page): Promise<{ arrows: number; misses: string[] }> {
+  return page.evaluate(() => {
+    const svg = document.querySelector<SVGSVGElement>('svg[data-testid="circuit"]')!;
+    const probe = document.createElementNS("http://www.w3.org/2000/svg", "path");
+    svg.appendChild(probe);
+    probe.style.stroke = "CanvasText";
+    const text = getComputedStyle(probe).stroke;
+    probe.remove();
+    const arrows = Array.from(svg.querySelectorAll<SVGPathElement>('[data-testid^="arrow-"]'));
+    const misses = arrows
+      .map((a) => ({ id: a.dataset.testid, cs: getComputedStyle(a) }))
+      .filter(({ cs }) => cs.stroke !== text || cs.opacity !== "1")
+      .map(({ id, cs }) => `${id}: ${cs.stroke} at ${cs.opacity}, ${text} expected`);
+    return { arrows: arrows.length, misses };
+  });
+}
+
 test("[scenario:circuit-arrows] every connector's arrow points the way the message moves: idle, in progress and done", async ({
   page,
 }, testInfo) => {
@@ -191,7 +256,15 @@ test("[scenario:circuit-arrows] every connector's arrow points the way the messa
   await page.getByTestId("theme-toggle").click();
   await expect(page.locator("html")).toHaveAttribute("data-theme", "light");
   await expectArrows(page, "preview, light");
-  await page.getByTestId("theme-toggle").click();
+  // High contrast: every arrow in the system's text colour, whatever the app's theme.
+  for (const theme of ["light", "dark"]) {
+    if ((await page.locator("html").getAttribute("data-theme")) !== theme) await page.getByTestId("theme-toggle").click();
+    await expect(page.locator("html")).toHaveAttribute("data-theme", theme);
+    await page.emulateMedia({ forcedColors: "active" });
+    await expect.poll(async () => (await forcedColourMisses(page)).misses, { message: `forced colours, ${theme}` }).toEqual([]);
+    expect((await forcedColourMisses(page)).arrows).toBeGreaterThanOrEqual(6);
+    await page.emulateMedia({ forcedColors: "none" });
+  }
   await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
   await expect(page.getByTestId("circuit").first()).toHaveAttribute("aria-label", /In order: the bulb, Send request, the oracles, .*, and back to the bulb\.$/);
 
@@ -201,8 +274,9 @@ test("[scenario:circuit-arrows] every connector's arrow points the way the messa
   await page.getByRole("link", { name: "Track request" }).click();
   await expect(page).toHaveURL(new RegExp(`/track/${id}$`));
   await showCircuit(page);
-  await expect(page.getByTestId("leg-dispute")).toHaveAttribute("data-status", "live");
-  const live = await expectArrows(page, "request leg live");
+  // on the devnet the relayer may finish the leg before Track opens: either is a sent request
+  await expect(page.getByTestId("leg-dispute")).toHaveAttribute("data-status", /^(live|done)$/);
+  const live = await expectArrows(page, "request leg sent");
   expect(stateOf(live, "bulb-request")).toBe("done");
   expect(stateOf(live, "updated-bulb")).toBe("idle");
   await expect(page.getByTestId("circuit")).toHaveAttribute(
@@ -219,8 +293,8 @@ test("[scenario:circuit-arrows] every connector's arrow points the way the messa
   // In progress: the decision leg relaying.
   await page.getByRole("button", { name: "Decide On" }).click();
   await showCircuit(page);
-  await expect(page.getByTestId("leg-ruling")).toHaveAttribute("data-status", "live", { timeout: 120_000 });
-  const back = await expectArrows(page, "decision leg live");
+  await expect(page.getByTestId("leg-ruling")).toHaveAttribute("data-status", /^(live|done)$/, { timeout: 120_000 });
+  const back = await expectArrows(page, "decision leg sent");
   expect(stateOf(back, "court-returning")).toBe("done");
 
   // Done: the bulb is updated and every wire's arrow is done.

@@ -13,6 +13,7 @@ import {
   NODE_AT,
   NODE_H,
   NODE_W,
+  strandArrowOpacity,
   strandOpacity,
   strandPath,
   strandY,
@@ -160,7 +161,8 @@ const Svg = styled.svg`
     stroke-dasharray: 2 6;
   }
   /* The direction of travel: an open chevron on every connector, solid even where its wire is dashed. A wire's arrow
-     takes the wire's state colour; a strand's arrow takes the strand's colour and opacity, set where it is drawn. */
+     takes the wire's state colour (idle: a stronger shade of the idle wire, so it reads at 3:1); a strand's arrow
+     takes the strand's colour, set where it is drawn, at no less than ARROW_MIN_OPACITY. */
   .arrow {
     fill: none;
     stroke-width: 2;
@@ -169,7 +171,7 @@ const Svg = styled.svg`
     transition: opacity 0.4s var(--ease-out);
   }
   .arrow.idle {
-    stroke: var(--wire-idle);
+    stroke: var(--arrow-idle);
   }
   .arrow.live {
     stroke: var(--purple-2);
@@ -179,6 +181,18 @@ const Svg = styled.svg`
   }
   .arrow.fail {
     stroke: var(--err);
+  }
+  /* High-contrast themes: the SVG keeps its own colours, so draw every arrow in the system's text colour (any CSS
+     rule outranks a strand arrow's stroke and opacity attributes). */
+  @media (forced-colors: active) {
+    .arrow,
+    .arrow.idle,
+    .arrow.live,
+    .arrow.done,
+    .arrow.fail {
+      stroke: CanvasText;
+      opacity: 1;
+    }
   }
   .pulse {
     fill: none;
@@ -379,7 +393,7 @@ function Leg({ name, model, L }: { name: LegName; model: CircuitModel; L: LegMod
   );
 }
 
-/** A connector's arrow: a wire's takes the wire's state colour, a strand's its oracle colour and opacity. */
+/** A connector's arrow: a wire's takes the wire's state colour, a strand's its oracle colour. */
 function ArrowMark({ c, model }: { c: Connector; model: CircuitModel }) {
   const { x, y, angle } = c.arrow;
   const common = {
@@ -397,7 +411,7 @@ function ArrowMark({ c, model }: { c: Connector; model: CircuitModel }) {
       {...common}
       className="arrow"
       stroke={oracleColor(c.oracle)}
-      opacity={strandOpacity(c.strand, c.leg, L.status)}
+      opacity={strandArrowOpacity(c.strand, c.leg, L.status)}
       data-state={c.strand}
     />
   );

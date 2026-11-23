@@ -208,13 +208,24 @@ export function circuitConnectors(model: CircuitModel): Connector[] {
   ];
 }
 
-/** A strand's opacity by its state, shared by the strand and its arrow. */
+/** A strand's opacity by its state. */
 export function strandOpacity(st: StrandState, leg: LegName, legStatus: LegModel["status"]): number {
   if (st === "ready") return legStatus === "ready" && leg === "ruling" ? 0.35 : 0.6;
   if (st === "pending") return 0.55;
   if (st === "fail") return 0.9;
   if (st === "off") return 0.7;
   return 1;
+}
+
+/**
+ * A strand's arrow is never fainter than this, even on a dimmed strand (waiting at 0.35, pending at 0.55): the
+ * direction must read at 3:1 on the surface in every oracle colour (4.0:1 dark, 3.3:1 light at 0.85).
+ */
+export const ARROW_MIN_OPACITY = 0.85;
+
+/** The opacity of a strand's arrow: its strand's, raised to ARROW_MIN_OPACITY. */
+export function strandArrowOpacity(st: StrandState, leg: LegName, legStatus: LegModel["status"]): number {
+  return Math.max(strandOpacity(st, leg, legStatus), ARROW_MIN_OPACITY);
 }
 
 /** The order of travel in one plain sentence, for the circuit's accessible name. */
