@@ -33,9 +33,10 @@ const JURORS = QS.get("jurors") === "1"; // no local decision (as on a testnet):
 // a finished request the court refused to arbitrate (ruling 0), as request #90 / court case #90 of the test wallet
 const REFUSED = QS.get("refused") === "1";
 const REFUSED_ID = 90n;
-// e2e switches: `window.__veashi = { outage: true }` makes request() reject, `{ quoteFail: true }` makes quote() reject
-const sw = (): { outage?: boolean; quoteFail?: boolean } =>
-  ((window as unknown as { __veashi?: { outage?: boolean; quoteFail?: boolean } }).__veashi ?? {});
+// e2e switches: `window.__veashi = { outage: true }` makes request() reject, `{ quoteFail: true }` makes quote() reject,
+// `{ bulbFail: true }` makes the bulb read reject
+type Switches = { outage?: boolean; quoteFail?: boolean; bulbFail?: boolean };
+const sw = (): Switches => ((window as unknown as { __veashi?: Switches }).__veashi ?? {});
 const FAIL = QS.get("fail"); // "cancel" | "revert" | "unknown": requestSwitch fails before sending / after a mined revert
 
 const foreign: Chain = {
@@ -276,7 +277,7 @@ export function fakeSetup(): AppSetup {
     },
     bulbIsOn: async (o) => {
       if (BULB_DELAY) await sleep(BULB_DELAY);
-      if (BULB_FAIL) throw new Error("bulb read failed");
+      if (BULB_FAIL || sw().bulbFail) throw new Error("bulb read failed");
       return bulbs.get(o.toLowerCase()) ?? false;
     },
     usdcAllowance: async () => allowance,

@@ -42,6 +42,19 @@ test("[scenario:juror-case] a court case number opens its request; in court it s
   if (fake) {
     await expect(page.getByTestId("now-title")).toHaveText(`Your request is in court · Court case #${caseId}`);
     await expect(page.getByTestId("juror-line")).toHaveText(JUROR[state]);
+    // the bulb is read again when the tab comes back: a failed re-read says so (never the old value or answer) and
+    // offers a retry, which brings both back
+    await page.evaluate(() => {
+      (window as unknown as { __veashi: object }).__veashi = { bulbFail: true };
+      window.dispatchEvent(new Event("focus"));
+    });
+    await expect(bulbNow).toHaveText("Current bulb state unavailable", { timeout: 10_000 });
+    await expect(page.getByTestId("juror-line")).toHaveText("The bulb could not be read. Use Retry bulb check before you vote.");
+    await expect(page.getByTestId("bulb")).toHaveAttribute("data-state", "unknown");
+    await page.evaluate(() => ((window as unknown as { __veashi: object }).__veashi = {}));
+    await page.getByTestId("bulb-retry").click();
+    await expect(bulbNow).toHaveText(state);
+    await expect(page.getByTestId("juror-line")).toHaveText(JUROR[state]);
   } else {
     // the local demo decides itself (Decide On / Decide Off): there are no jurors
     await expect(page.getByTestId("juror-line")).toHaveCount(0);
@@ -116,6 +129,16 @@ test("a court case that is not a lightbulb request, or not a number, says so and
   await page.goto("/track/abc");
   await expect(page.getByTestId("find-kind-request")).toBeChecked();
   await expect(page.locator("label[for=open-id]")).toHaveText("Request ID");
+
+  // a failed lookup is an error with a retry, not "no request"; Retry keeps focus on the page (fake setup: an outage)
+  if (await isFake(page)) {
+    await page.addInitScript(() => ((window as unknown as { __veashi: object }).__veashi = { outage: true }));
+    await page.goto("/case/5");
+    await expect(page.getByTestId("case-error")).toContainText("Could not look up court case #5");
+    await page.getByTestId("case-retry").click();
+    await expect(page.getByTestId("case-error")).toBeVisible();
+    await expect(page.getByTestId("case-title")).toBeFocused();
+  }
 });
 
 test("a request the court refused to arbitrate reads as a refusal everywhere, never as a bulb update", async ({ page }) => {

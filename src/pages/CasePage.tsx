@@ -63,7 +63,11 @@ const Resolve: React.FC<{ caseId: bigint }> = ({ caseId }) => {
               variant="secondary"
               text="Retry"
               type="button"
-              onClick={() => setAttempt((a) => a + 1)}
+              onClick={() => {
+                // the button goes away with the retry: keep focus on the page's title, not the document
+                title.current?.focus();
+                setAttempt((a) => a + 1);
+              }}
               data-testid="case-retry"
             />
           </p>
