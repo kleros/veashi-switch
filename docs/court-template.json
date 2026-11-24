@@ -1,0 +1,29 @@
+{
+  "title": "Veashi lightbulb: rule the opposite of the requester's current bulb state",
+  "description": "A requester on Base Sepolia asked to switch their lightbulb. The request reached this court on Arbitrum Sepolia through the Veashi cross-chain gateways, and the ruling goes back the same way to set the bulb.\n\n**The rule of this case:** check the requester's lightbulb as it is when you vote, and rule the opposite of its state. The court cannot see the bulb; checking it is the jurors' task. This case asks about the bulb at the time of voting, not when the case was created. The Dispute Policy, this case's primary document, states the same rule.\n\n**How to check the bulb** (no wallet needed). You need this case's number: Kleros Court shows it as *Case #* at the top of the case page.\n\n- **On the site:** open https://veashi-switch.netlify.app/case/{{arbitratorDisputeID}} (if the link ends without the number, the page asks for it). The request's page shows **Requester's bulb now: On** or **Off**, and the answer that flips it. The site needs a browser that runs JavaScript.\n- **On-chain:** on Arbitrum Sepolia (chain 421614), the HomeGateway that opened this case ({{arbitrableAddress}}) gives `disputeIDtoHash(case number)`, the dispute hash, and `foreignGateway()`. On Base Sepolia (chain 84532), that ForeignGateway's `disputeHashtoDisputeData(dispute hash)` gives the request number (first value) and the lightbulb contract (third value). On the lightbulb contract, `requests(request number)` gives the owner (first value), and `lightbulbIsOn(owner)` gives the bulb: true is on, false is off.\n\n**How to rule:** if the bulb is off, answer **Switch it on**. If the bulb is on, answer **Switch it off**. Check again just before you vote: another request of the same owner can switch the bulb while this case is open. If the site shows an error, cannot read the bulb or finds no request for this case, retry or use the on-chain check; do not refuse for that. Refuse to arbitrate only if the on-chain check shows no lightbulb request behind this case (`disputeIDtoHash` returns zero); the bulb is then left unchanged.",
+  "question": "Is the requester's lightbulb off or on right now? Rule the opposite: “Switch it on” if it is off, “Switch it off” if it is on.",
+  "answers": [
+    {
+      "id": "0x01",
+      "title": "Switch it on",
+      "description": "The requester's bulb is off when you vote."
+    },
+    {
+      "id": "0x02",
+      "title": "Switch it off",
+      "description": "The requester's bulb is on when you vote."
+    },
+    {
+      "id": "0x00",
+      "title": "Refuse to arbitrate",
+      "description": "The on-chain check finds no lightbulb request behind this case. The bulb is left unchanged."
+    }
+  ],
+  "policyURI": "/ipfs/QmYoUzD34KVAP5VX1iXyMmGhVKgR1LgxfpemhakqxFScW5",
+  "frontendUrl": "https://veashi-switch.netlify.app/case/{{arbitratorDisputeID}}",
+  "arbitratorChainID": "421614",
+  "arbitratorAddress": "0xE8442307d36e9bf6aB27F1A009F95CE8E11C3479",
+  "category": "Demo",
+  "lang": "en_US",
+  "version": "1.0"
+}
