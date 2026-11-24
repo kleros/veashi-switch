@@ -1,6 +1,6 @@
 {
   "kind": "testnet",
-  "scannerUrl": "",
+  "scannerUrl": "https://veashi-scan.netlify.app",
   "foreign": {
     "chainId": 84532,
     "name": "Base Sepolia",
