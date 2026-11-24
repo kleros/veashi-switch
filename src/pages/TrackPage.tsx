@@ -1152,6 +1152,8 @@ const Tracked: React.FC<{ id: bigint }> = ({ id }) => {
   const [bulbTick, setBulbTick] = useState(0);
   const bulbBusy = useRef(false);
   const owner = req?.owner;
+  // The bulb is the one on the request's own lightbulb: each lightbulb contract keeps its own bulbs.
+  const lightbulb = req?.lightbulb;
   const phase = bulbPhase(req?.stage);
   const readKey = bulbReadKey(req, bulbTick);
   useEffect(() => {
@@ -1159,12 +1161,12 @@ const Tracked: React.FC<{ id: bigint }> = ({ id }) => {
     let live = true;
     bulbBusy.current = true;
     const stop = readBulb(
-      data,
+      { bulbIsOn: (o) => data.bulbIsOn(o, lightbulb) },
       owner,
       () => live,
       (read) => {
         bulbBusy.current = false;
-        setBulbStored({ owner, phase, read });
+        setBulbStored({ owner, lightbulb, phase, read });
       }
     );
     return () => {
@@ -1172,7 +1174,7 @@ const Tracked: React.FC<{ id: bigint }> = ({ id }) => {
       bulbBusy.current = false;
       stop();
     };
-  }, [data, owner, readKey, bulbTry]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [data, owner, lightbulb, readKey, bulbTry]); // eslint-disable-line react-hooks/exhaustive-deps
   // While the court decides the bulb can change (another request of the same owner is applied): read it again now and
   // then, keeping the last value on screen meanwhile. A failed re-read shows as unavailable, never as the old value.
   useEffect(() => {
@@ -1189,7 +1191,7 @@ const Tracked: React.FC<{ id: bigint }> = ({ id }) => {
   }, [phase]);
   // What was read for another request's owner, or before the decision was applied, is not shown as the result's bulb;
   // unknown is neither on nor off.
-  const bulbRead = shownBulb(bulbStored, owner, phase);
+  const bulbRead = shownBulb(bulbStored, owner, phase, lightbulb);
   const mine = !!owner && !!wallet.address && wallet.address.toLowerCase() === owner.toLowerCase();
 
   const model = useMemo(

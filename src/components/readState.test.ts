@@ -47,6 +47,17 @@ describe("Track's bulb while the court decides and after", () => {
     expect(shownBulb({ owner: A, phase: "final", read: { kind: "failed" } }, A, "final")).toEqual({ kind: "failed" });
   });
 
+  it("shows a read only for its lightbulb: the same owner's bulb on the other lightbulb is another bulb", () => {
+    const LB1 = "0x9b2F1d258F7ded62874807c6DD15247b5C6Cff37";
+    const LB2 = "0x00000000000000000000000000000000000000b3";
+    const on1 = { owner: A, lightbulb: LB1, phase: "final" as const, read: { kind: "known" as const, on: true } };
+    expect(shownBulb(on1, A, "final", LB1)).toEqual({ kind: "known", on: true });
+    expect(shownBulb(on1, A, "final", LB1.toLowerCase())).toEqual({ kind: "known", on: true });
+    expect(shownBulb(on1, A, "final", LB2)).toEqual({ kind: "loading" });
+    expect(shownBulb(on1, A, "final")).toEqual({ kind: "loading" });
+    expect(shownBulb(court(true), A, "court", LB1)).toEqual({ kind: "loading" });
+  });
+
   it("re-reads on a timer and when the page is shown again, never while a read is in flight or the page is hidden", async () => {
     vi.useFakeTimers();
     const page = new EventTarget();

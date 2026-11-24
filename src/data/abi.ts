@@ -69,7 +69,6 @@ export const homeGatewayAbi = parseAbi([
   "function sendCreationFailure(bytes32 _disputeHash) returns (uint256)",
   `event DisputeReceived(bytes32 indexed _disputeHash, ${DISPUTE_MESSAGE} _message)`,
   "event DisputeCreationFailed(bytes32 indexed _disputeHash, uint256 _messageId)",
-  "event CrossChainDisputeIncoming(address _arbitrator, uint256 _arbitrableChainId, address indexed _arbitrable, uint256 indexed _arbitrableDisputeID, uint256 indexed _arbitratorDisputeID, uint256 _externalDisputeID, uint256 _templateId, string _templateUri)",
   "event RulingDispatched(uint256 indexed _disputeID, bytes32 indexed _disputeHash, uint256 _ruling, uint256 _messageId)",
   "error ArbitratorOnly()",
   "error ForeignGatewayMessageSenderOnly()",
@@ -80,6 +79,25 @@ export const homeGatewayAbi = parseAbi([
   "error UnexpectedMessage()",
   "error InsufficientFunds(uint256 _required, uint256 _available)",
 ]);
+
+/**
+ * HomeGateway's CrossChainDisputeIncoming, emitted by createReceivedDispute, in the two shapes it has had. They share
+ * the name, so they are kept out of homeGatewayAbi: a lookup by event name takes only the first of them. Both have the
+ * same three indexed arguments in the same places (topics 1 to 3): _arbitrable, _arbitrableDisputeID and
+ * _arbitratorDisputeID (the court case number).
+ */
+export const CROSS_CHAIN_DISPUTE_INCOMING = {
+  // kleros-v2 d361a298 (the submodule, so the devnet): the testnet HomeGateway before its upgrade, e.g. court case 214
+  v1: "event CrossChainDisputeIncoming(address _arbitrator, uint256 _arbitrableChainId, address indexed _arbitrable, uint256 indexed _arbitrableDisputeID, uint256 indexed _arbitratorDisputeID, uint256 _externalDisputeID, uint256 _templateId, string _templateUri)",
+  // kleros-v2 `dev`'s shape, which the upgraded testnet HomeGateway emits
+  v2: "event CrossChainDisputeIncoming(address _arbitrator, uint256 _arbitrableChainId, address indexed _arbitrable, uint256 indexed _arbitrableDisputeID, uint256 indexed _arbitratorDisputeID, uint256 _templateId)",
+} as const;
+
+/** Both shapes of CrossChainDisputeIncoming: decode a log by its first topic, never look one up by name. */
+export const crossChainDisputeIncomingAbi = [
+  ...parseAbi([CROSS_CHAIN_DISPUTE_INCOMING.v1]),
+  ...parseAbi([CROSS_CHAIN_DISPUTE_INCOMING.v2]),
+];
 
 export const lightbulbAbi = parseAbi([
   "function gateway() view returns (address)",

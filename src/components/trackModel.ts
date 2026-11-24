@@ -384,7 +384,8 @@ export interface NowModel {
    * The requester's current bulb, apart from this request's outcome: from the court case until the decision is applied
    * (jurors check it), and once the request is complete or closed. `juror` is the line for jurors while the court decides
    * on a testnet: the answer that flips the bulb once it is known, else what to do (never an answer from an unknown bulb).
-   * The local demo has no jurors (you decide On or Off), so it has none.
+   * Only for a request whose lightbulb uses that court template (`jurorGuide`); the first testnet lightbulb's template
+   * has other answers. The local demo has no jurors (you decide On or Off), so it has none.
    */
   bulbNow: { label: string; value: string; differs: string | null; retry: boolean; juror: string | null } | null;
 }
@@ -533,7 +534,8 @@ export function nowModel(
             next: "The court",
             counts: null,
             action: null,
-            bulbNow: bulbNow(null, true),
+            // the jurors' line names the answers of the court template its lightbulb uses (SwitchRequest.jurorGuide)
+            bulbNow: bulbNow(null, req.jurorGuide),
           };
     case "ruled":
       return {

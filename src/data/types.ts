@@ -113,7 +113,13 @@ export type RequestAction =
   | "claim-refund"; // GatewayLightbulb.claimRefund: pays the juror fees back to the requester
 
 export interface SwitchRequest {
-  disputeId: bigint; // ForeignGateway dispute ID
+  disputeId: bigint; // ForeignGateway dispute ID: the request number, shared by every lightbulb on that gateway
+  // The GatewayLightbulb the request was sent to: its bulb is the one the request switches and Track reads. The site can
+  // have two (config GatewayLightbulb, and GatewayLightbulbV2 once set: env.ts).
+  lightbulb: Address;
+  // True when that lightbulb uses the court template in docs/court-template.json (GatewayLightbulbV2): while the court
+  // decides, Track tells jurors which answer flips the bulb. False for the first lightbulb and on the devnet.
+  jurorGuide: boolean;
   homeDisputeId: bigint | null; // set once dispute-received (created on the court)
   owner: Address;
   selection: OracleSelection; // the effective oracles and threshold (the default resolved)
@@ -168,13 +174,15 @@ export interface SwitchData {
   defaultSelection(): Promise<OracleSelection>;
   validateSelection(selection: OracleSelection, oracles: Oracle[]): SelectionError | null;
   quote(selection: OracleSelection | null, token: PayToken): Promise<CostQuote>;
-  bulbIsOn(owner: Address): Promise<boolean>; // GatewayLightbulb.lightbulbIsOn
-  usdcAllowance(owner: Address): Promise<bigint>; // to GatewayLightbulb
+  // GatewayLightbulb.lightbulbIsOn, on the active lightbulb (where new requests go) unless `lightbulb` names another one,
+  // e.g. a request's own (`SwitchRequest.lightbulb`)
+  bulbIsOn(owner: Address, lightbulb?: Address): Promise<boolean>;
+  usdcAllowance(owner: Address): Promise<bigint>; // to the active GatewayLightbulb
   approveUsdc(amount: bigint): Promise<Hex>; // waits for the receipt
   requestSwitch(selection: OracleSelection | null, token: PayToken): Promise<SwitchRequest>; // waits for the receipt
   request(disputeId: bigint): Promise<SwitchRequest | null>;
   // The request a Kleros court case belongs to (jurors only know the court case number): its request ID, or null when
-  // the case was not opened for one of this GatewayLightbulb's requests.
+  // the case was not opened for a request of one of the site's lightbulbs.
   caseRequest(caseId: bigint): Promise<bigint | null>;
   requests(owner: Address): Promise<SwitchRequest[]>; // newest first
   watchRequest(disputeId: bigint, onChange: (request: SwitchRequest) => void): Unsubscribe;

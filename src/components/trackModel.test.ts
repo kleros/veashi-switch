@@ -46,6 +46,8 @@ const leg = (dispatchTx: Hex, reported: number[], extra: Partial<LegFacts> = {})
 
 const base = (over: Partial<RequestFacts> = {}): RequestFacts => ({
   disputeId: 1n,
+  lightbulb: "0x9b2F1d258F7ded62874807c6DD15247b5C6Cff37",
+  jurorGuide: true,
   owner: OWNER,
   selection: { oracleIds: [0, 1, 2], threshold: 2 },
   paid: { token: "native", amount: 5n },
@@ -210,7 +212,7 @@ describe("messageLinks (the request summary's links, in both views)", () => {
 });
 
 // The court stages of a request: the case is open (214, as on the testnet), then a ruling of `value` is given and returns.
-const inCourt = () => delivered({ created: { tx: h(11), homeDisputeId: 214n } });
+const inCourt = (over: Partial<RequestFacts> = {}) => delivered({ created: { tx: h(11), homeDisputeId: 214n }, ...over });
 const decided = (value: bigint) => delivered({ created: { tx: h(11), homeDisputeId: 214n }, ruling: { value, tx: RULING_TX } });
 const returning = (value: bigint, over: Partial<LegFacts> = {}) => ({ ...decided(value), rulingLeg: leg(RULING_TX, [0], { messageId: 8n, ...over }) });
 const applied = (value: bigint) => ({
@@ -304,6 +306,16 @@ describe("the requester's bulb during the court stages, for jurors", () => {
     // a juror is not the requester: the headline does not say "Your request"
     expect(now(r, OFF).title).toBe("The request is in court · Court case #214");
     expect(now(r, OFF, { mine: true }).title).toBe("Your request is in court · Court case #214");
+  });
+
+  it("has no jurors' line for a request on a lightbulb whose court template it does not follow (the first testnet one)", () => {
+    const r = buildRequest(inCourt({ jurorGuide: false }));
+    expect(r.stage).toBe("dispute-received");
+    expect(r.jurorGuide).toBe(false);
+    for (const bulb of [OFF, ON, { kind: "loading" } as const, { kind: "failed" } as const])
+      expect(now(r, bulb).bulbNow).toMatchObject({ juror: null });
+    // the requester's bulb itself is still shown
+    expect(now(r, ON).bulbNow).toMatchObject({ label: "Requester's bulb now", value: "On" });
   });
 
   it("names no answer while the bulb is loading or its read failed (with a retry), but keeps the jurors' line", () => {

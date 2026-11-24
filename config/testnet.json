@@ -19,6 +19,7 @@
     "foreign": {
       "ForeignGateway": "0xD2065e625D19eF00AA0b9E4cCb51D79a56b8343a",
       "GatewayLightbulb": "0x9b2F1d258F7ded62874807c6DD15247b5C6Cff37",
+      "GatewayLightbulbV2": "",
       "USDC": "0x036CbD53842c5426634e7929541eC2318f3dCF7e",
       "Yaho": "0xf69BCD5Ff8A64919BE217bC017454aba4f6daa9D",
       "Yaru": "0xFe9fF402A80EF4aBA0181759ad4ECDAfc815dFbf"

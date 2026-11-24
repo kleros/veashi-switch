@@ -43,22 +43,32 @@ export function readBulb(
   return () => timer && clearTimeout(timer);
 }
 
-/** The bulb read Track keeps: whose bulb, and whether it was read while the court decides or once the request is final. */
+/**
+ * The bulb read Track keeps: whose bulb, on which lightbulb (each lightbulb contract keeps its own bulbs), and whether it
+ * was read while the court decides or once the request is final.
+ */
 export interface StoredBulb {
   owner: string;
+  lightbulb?: string; // the request's lightbulb (SwitchRequest.lightbulb); absent = the active one
   phase: "court" | "final";
   read: BulbRead;
 }
 
 /**
- * The bulb read Track shows: the stored one only when it is for this owner and this phase. A read for another owner,
- * or one made while the court decided, is never shown once the decision is applied (it is not the result's bulb):
- * that is loading until the read of the current phase returns. Within the court phase the last read stays shown while
- * a refresh is in flight.
+ * The bulb read Track shows: the stored one only when it is for this owner, this lightbulb and this phase. A read for
+ * another owner or another lightbulb (another request of the same owner), or one made while the court decided, is
+ * never shown once the decision is applied (it is not the result's bulb): that is loading until the read of the current
+ * phase returns. Within the court phase the last read stays shown while a refresh is in flight.
  */
-export function shownBulb(stored: StoredBulb | null, owner: string | undefined, phase: StoredBulb["phase"] | null): BulbRead {
+export function shownBulb(
+  stored: StoredBulb | null,
+  owner: string | undefined,
+  phase: StoredBulb["phase"] | null,
+  lightbulb?: string,
+): BulbRead {
   if (!owner || !phase || !stored) return BULB_LOADING;
   if (stored.owner.toLowerCase() !== owner.toLowerCase() || stored.phase !== phase) return BULB_LOADING;
+  if ((stored.lightbulb ?? "").toLowerCase() !== (lightbulb ?? "").toLowerCase()) return BULB_LOADING;
   return stored.read;
 }
 

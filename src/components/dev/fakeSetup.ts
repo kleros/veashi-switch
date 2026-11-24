@@ -61,6 +61,8 @@ const ORACLES: Oracle[] = [
 ];
 const DEFAULT: OracleSelection = { oracleIds: [0, 1, 2], threshold: 2 };
 const JUROR_FEES = eth(0.0027);
+// The fake lightbulb: its requests get the jurors' line in court (?jurors=1), as on the testnet's GatewayLightbulbV2.
+const LIGHTBULB: Address = "0x00000000000000000000000000000000000000b1";
 const USDC_PER_ETH = 2450n;
 
 const hash = (): Hex =>
@@ -126,6 +128,8 @@ export function fakeSetup(): AppSetup {
   if (REFUSED)
     requests.set(REFUSED_ID, {
       disputeId: REFUSED_ID,
+      lightbulb: LIGHTBULB,
+      jurorGuide: true,
       homeDisputeId: REFUSED_ID,
       owner: DEV,
       selection: DEFAULT,
@@ -147,6 +151,8 @@ export function fakeSetup(): AppSetup {
     const hid = nextHome++;
     requests.set(id, {
       disputeId: id,
+      lightbulb: LIGHTBULB,
+      jurorGuide: true,
       homeDisputeId: hid,
       owner: DEV,
       selection: DEFAULT,
@@ -300,6 +306,8 @@ export function fakeSetup(): AppSetup {
       const id = nextId++;
       const r: SwitchRequest = {
         disputeId: id,
+        lightbulb: LIGHTBULB,
+        jurorGuide: true,
         homeDisputeId: null,
         owner: who,
         selection: sel ?? DEFAULT,

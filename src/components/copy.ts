@@ -59,7 +59,7 @@ export function helpStages(network: CopyNetwork): { lead: string; rest: string }
     {
       lead: "The court decides.",
       rest: testnet
-        ? "The decision is On (“Switch it on”) or Off (“Switch it off”), given by Kleros Court's jurors in the court case shown on Track. The court can also refuse to arbitrate; the bulb then stays as it is."
+        ? "The decision is On or Off, given by Kleros Court's jurors in the court case shown on Track. The court can also refuse to arbitrate; the bulb then stays as it is."
         : "The decision is On or Off. On this local demo you give the decision yourself from the Track page.",
     },
     {

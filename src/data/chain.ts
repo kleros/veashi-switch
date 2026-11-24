@@ -5,7 +5,10 @@ import {
   createPublicClient,
   createWalletClient,
   http,
+  numberToHex,
+  pad,
   parseEventLogs,
+  toEventSelector,
   zeroAddress,
   type PublicClient,
 } from "viem";
@@ -14,6 +17,7 @@ import { getAccount, switchChain, writeContract } from "wagmi/actions";
 import {
   adapterAbi,
   allErrorsAbi,
+  crossChainDisputeIncomingAbi,
   erc20Abi,
   foreignGatewayAbi,
   homeGatewayAbi,
@@ -23,7 +27,14 @@ import {
   yahoAbi,
   yaruAbi,
 } from "./abi";
-import { explorerTxUrl, scannerTxUrl, type ParsedDevnetEnv } from "./env";
+import {
+  activeLightbulb,
+  explorerTxUrl,
+  isJurorGuidedLightbulb,
+  knownLightbulbs,
+  scannerTxUrl,
+  type ParsedDevnetEnv,
+} from "./env";
 import { getContractEventsPaged } from "./logs";
 import { viemChains } from "./networks";
 import { CANCELLED_BEFORE_SENDING, describeError, MINED_REVERT, SwitchError, toSwitchError, withLead, type ErrorContext } from "./errors";
@@ -100,6 +111,7 @@ type DisputeMessage = {
 
 /** What `act` needs besides the facts: the messages and the hash each step is called with. */
 interface Handles {
+  lightbulb: Address; // the lightbulb the request was sent to (claimRefund)
   disputeHash: Hex | null;
   disputeMessage: DisputeMessage | null; // HomeGateway DisputeReceived: createReceivedDispute takes it back
   disputeLeg: Message | null; // the dispute leg's Yaho message, for Yaru.executeMessages on the home chain
@@ -163,23 +175,49 @@ export async function runRule(deps: RuleDeps, disputeId: bigint, ruling: 1 | 2):
 const MAX_UINT256 = 2n ** 256n - 1n;
 
 export interface CaseDeps {
-  lightbulb: Address;
+  lightbulbs: readonly Address[]; // every lightbulb of the site (env.ts knownLightbulbs)
   hashOf: (caseId: bigint) => Promise<Hex>; // HomeGateway.disputeIDtoHash: zero for a case it did not open
   disputeOf: (hash: Hex) => Promise<{ id: bigint; arbitrable: Address; relayed: boolean }>; // ForeignGateway.disputeHashtoDisputeData
 }
 
 /**
  * The request a Kleros court case belongs to: the reverse of the request's `disputeHashtoID` read, in two view calls and
- * no event scan. Null when the HomeGateway did not open the case, or opened it for another arbitrable. A failed read
- * rejects (the caller words it).
+ * no event scan. Null when the HomeGateway did not open the case, or opened it for an arbitrable that is not one of the
+ * site's lightbulbs. A failed read rejects (the caller words it).
  */
 export async function resolveCase(deps: CaseDeps, caseId: bigint): Promise<bigint | null> {
   if (caseId < 0n || caseId > MAX_UINT256) return null;
   const hash = await deps.hashOf(caseId);
   if (BigInt(hash) === 0n) return null;
   const dispute = await deps.disputeOf(hash);
-  if (!dispute.relayed || !sameAddress(dispute.arbitrable, deps.lightbulb)) return null;
+  if (!dispute.relayed || !deps.lightbulbs.some((lb) => sameAddress(dispute.arbitrable, lb))) return null;
   return dispute.id;
+}
+
+/** The first topic of each CrossChainDisputeIncoming shape (abi.ts), the old one first. */
+export const CROSS_CHAIN_DISPUTE_INCOMING_TOPICS: readonly Hex[] = crossChainDisputeIncomingAbi.map((event) => toEventSelector(event));
+
+/**
+ * The transaction that opened a request's court case: the HomeGateway's CrossChainDisputeIncoming for this lightbulb,
+ * request and court case, in either shape. Matched on the raw topics, so a log that does not decode cannot slip
+ * through. Null when no log matches.
+ */
+export function creationTxOf(
+  logs: readonly { topics: readonly (Hex | null)[]; transactionHash: Hex | null }[],
+  want: { lightbulb: Address; disputeId: bigint; homeDisputeId: bigint },
+): Hex | null {
+  const expected = [
+    pad(want.lightbulb.toLowerCase() as Hex),
+    numberToHex(want.disputeId, { size: 32 }),
+    numberToHex(want.homeDisputeId, { size: 32 }),
+  ];
+  const match = logs.find(
+    (log) =>
+      log.topics.length === 4 &&
+      CROSS_CHAIN_DISPUTE_INCOMING_TOPICS.includes(log.topics[0]?.toLowerCase() as Hex) &&
+      expected.every((topic, i) => log.topics[i + 1]?.toLowerCase() === topic),
+  );
+  return match?.transactionHash ?? null;
 }
 
 export function createChainSwitchData(env: ParsedDevnetEnv, config: Config): SwitchData {
@@ -190,7 +228,10 @@ export function createChainSwitchData(env: ParsedDevnetEnv, config: Config): Swi
   const watchInterval = env.kind === "devnet" ? WATCH_INTERVAL_MS : TESTNET_WATCH_INTERVAL_MS;
   const fa = env.addresses.foreign;
   const ha = env.addresses.home;
-  const lightbulb = fa.GatewayLightbulb;
+  // New requests, quotes, the USDC allowance and the Request page's bulb use the active lightbulb. A request is read on
+  // the lightbulb it was sent to, which can be the previous one (config/testnet.json GatewayLightbulbV2, env.ts).
+  const lightbulb = activeLightbulb(fa)!;
+  const lightbulbs = knownLightbulbs(fa);
   const gateway = fa.ForeignGateway;
   const usdc = fa.USDC;
 
@@ -403,14 +444,17 @@ export function createChainSwitchData(env: ParsedDevnetEnv, config: Config): Swi
   }
 
   async function readRequest(disputeId: bigint): Promise<{ facts: RequestFacts; handles: Handles } | null> {
+    // Request numbers are the ForeignGateway's dispute IDs, which both lightbulbs share without repeats: the request is
+    // on whichever lightbulb logged it.
     const requested = await getContractEventsPaged(foreign, {
-      address: lightbulb,
+      address: lightbulbs,
       abi: lightbulbAbi,
       eventName: "LightbulbRequested",
       args: { _disputeID: disputeId },
     }, { fromBlock: env.foreign.fromBlock });
     const log = requested[0];
     if (!log) return null;
+    const requestLightbulb = lightbulbs.find((lb) => sameAddress(lb, log.address)) ?? log.address;
     // Everything after the request happens at or after its block on the foreign chain. Starting the foreign reads there
     // keeps them short on an RPC that allows only small getLogs ranges (Base Sepolia's own allows 200 blocks).
     const since = { foreign: log.blockNumber, home: env.home.fromBlock };
@@ -423,6 +467,8 @@ export function createChainSwitchData(env: ParsedDevnetEnv, config: Config): Swi
 
     const facts: RequestFacts = {
       disputeId,
+      lightbulb: requestLightbulb,
+      jurorGuide: isJurorGuidedLightbulb(fa, requestLightbulb),
       owner,
       selection: { oracleIds: [], threshold: 0 },
       paid: { token: "native", amount: 0n },
@@ -442,7 +488,13 @@ export function createChainSwitchData(env: ParsedDevnetEnv, config: Config): Swi
       homeTime: now,
       updatedAt: now,
     };
-    const handles: Handles = { disputeHash: null, disputeMessage: null, disputeLeg: null, returnLeg: null };
+    const handles: Handles = {
+      lightbulb: requestLightbulb,
+      disputeHash: null,
+      disputeMessage: null,
+      disputeLeg: null,
+      returnLeg: null,
+    };
     if (!relayed) return { facts, handles };
 
     const { _disputeHash: disputeHash, _messageId: messageId } = relayed.args;
@@ -497,13 +549,16 @@ export function createChainSwitchData(env: ParsedDevnetEnv, config: Config): Swi
         functionName: "disputeHashtoID",
         args: [disputeHash],
       });
+      // Only for the transaction's link: the case number is the state read above. Both event shapes are read in one
+      // scan (the HomeGateway's upgrade changed it; older cases keep the old one) and matched here on their topics.
       const incoming = await getContractEventsPaged(home, {
         address: ha.HomeGateway,
-        abi: homeGatewayAbi,
-        eventName: "CrossChainDisputeIncoming",
-        args: { _arbitrable: lightbulb, _arbitrableDisputeID: disputeId, _arbitratorDisputeID: homeDisputeId },
+        abi: crossChainDisputeIncomingAbi,
       }, { fromBlock: env.home.fromBlock });
-      facts.created = { tx: incoming[0]?.transactionHash ?? null, homeDisputeId };
+      facts.created = {
+        tx: creationTxOf(incoming, { lightbulb: requestLightbulb, disputeId, homeDisputeId }),
+        homeDisputeId,
+      };
       const dispatched = await getContractEventsPaged(home, {
         address: ha.HomeGateway,
         abi: homeGatewayAbi,
@@ -515,7 +570,7 @@ export function createChainSwitchData(env: ParsedDevnetEnv, config: Config): Swi
         facts.ruling = { value: rulingLog.args._ruling as bigint, tx: rulingLog.transactionHash };
         await returnLeg(rulingLog.transactionHash, rulingLog.args._messageId as bigint);
         const switchedLogs = await getContractEventsPaged(foreign, {
-          address: lightbulb,
+          address: requestLightbulb,
           abi: lightbulbAbi,
           eventName: "LightbulbSwitched",
           args: { _disputeID: disputeId },
@@ -565,7 +620,7 @@ export function createChainSwitchData(env: ParsedDevnetEnv, config: Config): Swi
     facts.creationFailure = { tx: failedLog.transactionHash };
     await returnLeg(failedLog.transactionHash, failedLog.args._messageId as bigint);
     const closedLogs = await getContractEventsPaged(foreign, {
-      address: lightbulb,
+      address: requestLightbulb,
       abi: lightbulbAbi,
       eventName: "LightbulbRequestFailed",
       args: { _disputeID: disputeId },
@@ -615,7 +670,7 @@ export function createChainSwitchData(env: ParsedDevnetEnv, config: Config): Swi
   function caseRequest(caseId: bigint): Promise<bigint | null> {
     return resolveCase(
       {
-        lightbulb,
+        lightbulbs,
         hashOf: (id) => home.readContract({ address: ha.HomeGateway, abi: homeGatewayAbi, functionName: "disputeIDtoHash", args: [id] }),
         disputeOf: async (hash) => {
           const [id, , arbitrable, relayed] = await foreign.readContract({
@@ -672,7 +727,13 @@ export function createChainSwitchData(env: ParsedDevnetEnv, config: Config): Swi
       case "execute-ruling":
         return { chain: "foreign" as const, address: gateway, abi: foreignGatewayAbi, functionName: "executeRuling", args: [disputeId] };
       case "claim-refund":
-        return { chain: "foreign" as const, address: lightbulb, abi: lightbulbAbi, functionName: "claimRefund", args: [disputeId] };
+        return {
+          chain: "foreign" as const,
+          address: handles.lightbulb,
+          abi: lightbulbAbi,
+          functionName: "claimRefund",
+          args: [disputeId],
+        };
     }
   }
 
@@ -794,7 +855,7 @@ export function createChainSwitchData(env: ParsedDevnetEnv, config: Config): Swi
 
   async function requests(owner: Address): Promise<SwitchRequest[]> {
     const logs = await getContractEventsPaged(foreign, {
-      address: lightbulb,
+      address: lightbulbs,
       abi: lightbulbAbi,
       eventName: "LightbulbRequested",
       args: { _owner: owner },
@@ -865,8 +926,8 @@ export function createChainSwitchData(env: ParsedDevnetEnv, config: Config): Swi
     defaultSelection: () => defaultSelection().catch(fail),
     validateSelection,
     quote: (selection, token) => quote(selection, token).catch(fail),
-    bulbIsOn: (owner) =>
-      foreign.readContract({ address: lightbulb, abi: lightbulbAbi, functionName: "lightbulbIsOn", args: [owner] }).catch(fail),
+    bulbIsOn: (owner, on = lightbulb) =>
+      foreign.readContract({ address: on, abi: lightbulbAbi, functionName: "lightbulbIsOn", args: [owner] }).catch(fail),
     usdcAllowance: (owner) => usdcAllowance(owner).catch(fail),
     approveUsdc,
     requestSwitch,

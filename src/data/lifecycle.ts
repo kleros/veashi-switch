@@ -82,6 +82,8 @@ export interface LegFacts {
 
 export interface RequestFacts {
   disputeId: bigint;
+  lightbulb: Address; // the GatewayLightbulb that logged LightbulbRequested
+  jurorGuide: boolean; // that lightbulb uses the court template Track's juror line follows
   owner: Address;
   selection: OracleSelection;
   paid: { token: PayToken; amount: bigint };
@@ -90,7 +92,7 @@ export interface RequestFacts {
   dispute: LegFacts | null; // null only when the request transaction dispatched nothing
   // HomeGateway.getReceivedDispute(hash) once onMessage recorded it: receivedAt, and receivedAt + creationTimeout
   delivered: { at: number; failableAt: number } | null;
-  created: { tx: Hex | null; homeDisputeId: bigint } | null; // createReceivedDispute ran (tx: CrossChainDisputeIncoming)
+  created: { tx: Hex | null; homeDisputeId: bigint } | null; // createReceivedDispute ran (tx: CrossChainDisputeIncoming, either shape)
   creationBlocker: string | null; // while delivered and not created: why a simulated createReceivedDispute reverts
   creationFailure: { tx: Hex } | null; // DisputeCreationFailed on the home chain (sendCreationFailure)
   ruling: { value: bigint; tx: Hex } | null; // RulingDispatched on the home chain
@@ -192,6 +194,8 @@ export function buildRequest(facts: RequestFacts, oracleName: (id: number) => st
 
   const request: SwitchRequest = {
     disputeId: facts.disputeId,
+    lightbulb: facts.lightbulb,
+    jurorGuide: facts.jurorGuide,
     homeDisputeId: !failurePath && at >= STEP["dispute-received"] ? (facts.created?.homeDisputeId ?? null) : null,
     owner: facts.owner,
     selection: facts.selection,

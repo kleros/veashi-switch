@@ -29,6 +29,8 @@ const leg = (reported: number[], extra: Partial<LegFacts> = {}): LegFacts => ({
 
 const base = (over: Partial<RequestFacts> = {}): RequestFacts => ({
   disputeId: 4n,
+  lightbulb: "0x9b2F1d258F7ded62874807c6DD15247b5C6Cff37",
+  jurorGuide: true,
   owner: OWNER,
   selection: { oracleIds: [0, 1, 2], threshold: 2 },
   paid: { token: "native", amount: 5n },
