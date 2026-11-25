@@ -1005,8 +1005,8 @@ export const RequestPage: React.FC = () => {
             Pay and send
           </h2>
           <p>
-            Pay the request fee on {names.foreign}. USDC may require approval first. No payment is needed on{" "}
-            {names.home}.
+            Pay the request fee on {names.foreign}.{takesUsdc ? " USDC may require approval first." : ""} No payment is
+            needed on {names.home}.
           </p>
         </div>
       </PanelHead>

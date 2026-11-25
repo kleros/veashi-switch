@@ -56,6 +56,7 @@ test("[scenario:routes-pick] the Request page picks the route; fees, token, wall
   await expect(page.getByTestId("balance")).toHaveText("Your balance: 25.00 USDC");
   await expectRowsSumToTotal(page, 18);
   await expect(page.getByTestId("usdc-step-approve")).toHaveCount(0);
+  await expect(page.locator("body")).not.toContainText("approval", { useInnerText: true });
   await expectPlainText(page, "Request on Arc-like");
   await attachScreenshot(page, testInfo, "routes-pick-arc-pay");
 
