@@ -3,12 +3,12 @@ import { createRoot } from "react-dom/client";
 import { App, type Boot } from "./App";
 import type { AppSetup } from "./components/setup";
 import { plainError } from "./components/errors";
-import { createSwitchData, createWagmiConfig, loadEnv } from "./data";
+import { createRoutes, createWagmiConfig, loadNetwork } from "./data";
 
 async function networkSetup(): Promise<AppSetup> {
-  const env = await loadEnv();
-  const config = createWagmiConfig(env);
-  return { env, config, data: createSwitchData(env, config) };
+  const network = await loadNetwork();
+  const config = createWagmiConfig(network);
+  return { network, config, routes: createRoutes(network, config) };
 }
 
 async function boot(): Promise<Boot> {

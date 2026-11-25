@@ -5,8 +5,9 @@ import { Navigate, useParams } from "react-router-dom";
 import styled from "styled-components";
 import { OpenById, Picker } from "../components/FindById";
 import { Loader } from "../components/Loader";
-import { lookupCase, parseCaseNumber, type CaseLookup } from "../components/readState";
+import { parseCaseNumber } from "../components/readState";
 import { routeConfig } from "../components/route";
+import { lookupCaseAcrossRoutes, routeSource, trackPath, type RoutedCaseLookup } from "../components/routing";
 import { useSetup } from "../components/setup";
 import { Callout, LibButton, PageHead, Panel, Shell } from "../components/ui";
 
@@ -18,20 +19,25 @@ const Finding = styled(Panel)`
   color: var(--text-2);
 `;
 
+/**
+ * Every route's HomeGateway is asked for the case (they share one court, so one of them opened it), and the page hands
+ * over to that route's Track page: the court template's link (`/case/{{arbitratorDisputeID}}`) lands on its request
+ * whichever route it came from.
+ */
 const Resolve: React.FC<{ caseId: bigint }> = ({ caseId }) => {
-  const { data } = useSetup();
+  const { data, routes } = useSetup();
   const home = routeConfig(data.chains()).to.name;
-  const [lookup, setLookup] = useState<CaseLookup>({ kind: "loading" });
+  const [lookup, setLookup] = useState<RoutedCaseLookup>({ kind: "loading" });
   const [attempt, setAttempt] = useState(0);
   const title = useRef<HTMLHeadingElement>(null);
   useEffect(() => {
     let live = true;
     setLookup({ kind: "loading" });
-    void lookupCase(data, caseId).then((r) => live && setLookup(r));
+    void lookupCaseAcrossRoutes(routes.map(routeSource), caseId).then((r) => live && setLookup(r));
     return () => {
       live = false;
     };
-  }, [data, caseId, attempt]);
+  }, [routes, caseId, attempt]);
   // The loader's status goes away with the answer: move focus to the new title so a screen reader says it (a failed
   // read is an alert of its own).
   useEffect(() => {
@@ -39,7 +45,10 @@ const Resolve: React.FC<{ caseId: bigint }> = ({ caseId }) => {
   }, [lookup.kind]);
 
   const id = caseId.toString();
-  if (lookup.kind === "found") return <Navigate to={`/track/${lookup.requestId.toString()}`} replace />;
+  if (lookup.kind === "found") {
+    const route = routes.find((r) => r.id === lookup.routeId) ?? routes[0];
+    return <Navigate to={trackPath(route, lookup.requestId)} replace />;
+  }
   return (
     <Shell>
       <PageHead>

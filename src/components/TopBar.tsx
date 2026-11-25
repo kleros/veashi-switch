@@ -3,6 +3,7 @@ import { Link, NavLink, useLocation } from "react-router-dom";
 import styled from "styled-components";
 import { useThemeMode } from "../theme/ThemeMode";
 import { HelpDialog } from "./HelpDialog";
+import { chainColor } from "./route";
 import { TESTNET_BUILD, useChainNames, useRouteMaybe } from "./setup";
 import { Icon, IconButton, LibButton } from "./ui";
 
@@ -171,9 +172,9 @@ export const TopBar: React.FC<{ account?: React.ReactNode }> = ({ account }) => 
   const onRequest = loc.pathname === "/";
   const pillBody = (
     <>
-      <Dot $c="#0052ff" />
+      <Dot $c={route ? chainColor(route.from) : "#0052ff"} />
       {route ? route.pill : TESTNET_BUILD ? "Public testnet" : "Local devnet"}
-      <Dot $c="#28a0f0" />
+      <Dot $c={route ? chainColor(route.to) : "#28a0f0"} />
     </>
   );
   return (

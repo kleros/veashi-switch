@@ -25,6 +25,13 @@ export function routeConfig(chains: { foreign: ChainInfo; home: ChainInfo }): Ro
   };
 }
 
+/** Each chain's colour in the route cards and the top bar's pill: Base blue, Arbitrum blue, Arc violet. */
+const CHAIN_COLORS: Readonly<Record<number, string>> = { 84532: "#0052ff", 421614: "#28a0f0", 5042002: "#7c5cff" };
+
+export function chainColor(chain: Pick<ChainInfo, "id" | "key">): string {
+  return CHAIN_COLORS[chain.id] ?? (chain.key === "foreign" ? "#0052ff" : "#28a0f0");
+}
+
 export type WalletGate =
   | { state: "unavailable"; message: string; canTransact: false }
   | { state: "disconnected"; message: string; canTransact: false }

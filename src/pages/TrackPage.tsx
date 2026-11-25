@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { Copiable, Tabs, Tag } from "@kleros/ui-components-library";
-import { Link, useNavigate, useParams } from "react-router-dom";
+import { Link, Navigate, useNavigate, useParams } from "react-router-dom";
 import styled from "styled-components";
 import type { Oracle, RequestAction, StageTx, SwitchRequest } from "../data";
 import { isFailurePath, isFinal } from "../data/lifecycle";
@@ -23,7 +23,16 @@ import {
   type StoredBulb,
 } from "../components/readState";
 import { routeConfig, walletGate } from "../components/route";
-import { useSetup } from "../components/setup";
+import { RouteScope, useSetup } from "../components/setup";
+import {
+  latestRequest,
+  requestKey,
+  requestsAcrossRoutes,
+  routeSource,
+  trackPath,
+  trackTarget,
+  type RoutedRequest,
+} from "../components/routing";
 import { useCopy } from "../components/Toast";
 import {
   actionModels,
@@ -627,48 +636,118 @@ function useOracles(): Oracle[] {
   return oracles;
 }
 
-/** The connected wallet's requests, newest first, with loading, failed and empty told apart. */
-function useMyRequests(stage?: string) {
-  const { data } = useSetup();
+/** Whether the wallet can list its requests: on the route's network with one route; connected at all with several. */
+function useCanList(): boolean {
+  const { routes } = useSetup();
   const wallet = useWallet();
-  const [items, setItems] = useState<SwitchRequest[] | null>(null);
+  if (routes.length === 1) return wallet.ready;
+  return !!wallet.address && (wallet.status === "connected" || wallet.status === "wrong-chain");
+}
+
+/**
+ * The connected wallet's requests on every route (per route newest first, routes in config order), with loading,
+ * failed and empty told apart. A route that fails beside another's requests is named in `partial`.
+ */
+function useMyRequests(stage?: string) {
+  const { routes } = useSetup();
+  const wallet = useWallet();
+  const canList = useCanList();
+  const [items, setItems] = useState<RoutedRequest[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [partial, setPartial] = useState<string | null>(null);
+  const [latest, setLatest] = useState<RoutedRequest | null>(null);
   const [loading, setLoading] = useState(false);
   const [tick, setTick] = useState(0);
   useEffect(() => {
-    if (!wallet.ready || !wallet.address) {
+    if (!canList || !wallet.address) {
       setItems(null);
       setError(null);
+      setPartial(null);
+      setLatest(null);
       setLoading(false);
       return;
     }
     let live = true;
     setLoading(true);
     setError(null);
-    data
-      .requests(wallet.address)
-      .then((l) => live && setItems(l))
+    setPartial(null);
+    requestsAcrossRoutes(routes.map(routeSource), wallet.address, plainError)
+      .then((list) => {
+        if (!live) return;
+        const failed = list.failed.map((f) => (routes.length > 1 ? `${f.name}: ${f.message}` : f.message)).join(" ");
+        // with nothing listed, a failed route may hold the requests: the list failed; beside requests it is a note
+        if (list.failed.length > 0 && list.items.length === 0) setError(failed);
+        else {
+          setItems(list.items);
+          setPartial(list.failed.length > 0 ? failed : null);
+          setLatest(latestRequest(list));
+        }
+      })
       .catch((e) => live && setError(plainError(e)))
       .finally(() => live && setLoading(false));
     return () => {
       live = false;
     };
-  }, [data, wallet.ready, wallet.address, stage, tick]);
+  }, [routes, canList, wallet.address, stage, tick]);
   return {
     items,
+    latest,
     error,
+    partial,
     loading,
+    canList,
     retry: () => setTick((t) => t + 1),
-    state: listState({ loading, error, items }),
+    state: listState({ loading, error, items: items && items.map((i) => i.req) }),
   };
 }
 
+/** "Your requests": each links to its Track page; with several routes each names its network. */
+const RequestList: React.FC<{ items: RoutedRequest[]; currentKey?: string; onPick?: () => void }> = ({
+  items,
+  currentKey,
+  onPick,
+}) => {
+  const { routes } = useSetup();
+  const several = routes.length > 1;
+  return (
+    <div data-testid="my-requests">
+      <span className="lbl" id="mine-h">
+        Your requests
+      </span>
+      <ul aria-labelledby="mine-h">
+        {items.map(({ routeId, req: r }) => {
+          const route = routes.find((x) => x.id === routeId) ?? routes[0];
+          const key = requestKey(route, r.disputeId);
+          return (
+            <li key={key}>
+              <Link
+                to={trackPath(route, r.disputeId)}
+                onClick={onPick}
+                aria-current={currentKey === key ? "page" : undefined}
+                data-testid={`request-option-${key}`}
+              >
+                {several ? `${route.env.foreign.name} · ` : ""}Request #{r.disputeId.toString()} ·{" "}
+                {r.stage === "switched"
+                  ? `Complete · ${decisionOf(r) === "refused" ? "bulb unchanged" : decisionName(decisionOf(r))}`
+                  : r.stage === "closed"
+                    ? r.refund?.claimed
+                      ? "Closed · refunded"
+                      : "Closed · refund due"
+                    : STAGE_LABEL[r.stage]}
+              </Link>
+            </li>
+          );
+        })}
+      </ul>
+    </div>
+  );
+};
+
 const FindBody: React.FC<{
-  current?: bigint;
+  currentKey?: string;
   stage?: string;
   onClose: () => void;
-}> = ({ current, stage, onClose }) => {
-  const wallet = useWallet();
+}> = ({ currentKey, stage, onClose }) => {
   const list = useMyRequests(stage);
   return (
     <div className="in">
@@ -680,7 +759,7 @@ const FindBody: React.FC<{
       </div>
       <Picker>
         <OpenById onGo={onClose} />
-        {!wallet.ready ? (
+        {!list.canList ? (
           <p className="msg">Connect a wallet to list your own requests.</p>
         ) : list.state === "loading" ? (
           <Loader className="msg" label="Loading your requests…" />
@@ -701,32 +780,14 @@ const FindBody: React.FC<{
             No requests from this wallet yet.
           </p>
         ) : (
-          <div data-testid="my-requests">
-            <span className="lbl" id="mine-h">
-              Your requests
-            </span>
-            <ul aria-labelledby="mine-h">
-              {(list.items ?? []).map((r) => (
-                <li key={r.disputeId.toString()}>
-                  <Link
-                    to={`/track/${r.disputeId}`}
-                    onClick={onClose}
-                    aria-current={current === r.disputeId ? "page" : undefined}
-                    data-testid={`request-option-${r.disputeId}`}
-                  >
-                    Request #{r.disputeId.toString()} ·{" "}
-                    {r.stage === "switched"
-                      ? `Complete · ${decisionOf(r) === "refused" ? "bulb unchanged" : decisionName(decisionOf(r))}`
-                      : r.stage === "closed"
-                        ? r.refund?.claimed
-                          ? "Closed · refunded"
-                          : "Closed · refund due"
-                        : STAGE_LABEL[r.stage]}
-                  </Link>
-                </li>
-              ))}
-            </ul>
-          </div>
+          <>
+            <RequestList items={list.items ?? []} currentKey={currentKey} onPick={onClose} />
+            {list.partial && (
+              <p className="msg" role="status" data-testid="list-partial">
+                Some requests may be missing. {list.partial}
+              </p>
+            )}
+          </>
         )}
       </Picker>
     </div>
@@ -734,7 +795,7 @@ const FindBody: React.FC<{
 };
 
 /** One "Find or switch request" button that opens one panel with the request-ID field and "Your requests". */
-const FindRequest: React.FC<{ current?: bigint; stage?: string }> = ({ current, stage }) => {
+const FindRequest: React.FC<{ currentKey?: string; stage?: string }> = ({ currentKey, stage }) => {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDialogElement>(null);
   useEffect(() => {
@@ -762,7 +823,7 @@ const FindRequest: React.FC<{ current?: bigint; stage?: string }> = ({ current, 
           if (e.target === ref.current) setOpen(false);
         }}
       >
-        {open && <FindBody current={current} stage={stage} onClose={() => setOpen(false)} />}
+        {open && <FindBody currentKey={currentKey} stage={stage} onClose={() => setOpen(false)} />}
       </FindBox>
     </div>
   );
@@ -772,12 +833,16 @@ const FindRequest: React.FC<{ current?: bigint; stage?: string }> = ({ current, 
 const Latest: React.FC = () => {
   const wallet = useWallet();
   const nav = useNavigate();
-  const { data } = useSetup();
+  const { data, routes } = useSetup();
   const route = routeConfig(data.chains());
   const list = useMyRequests();
+  // the newest request opens at once when only one route has any (request IDs of two routes cannot be compared)
   useEffect(() => {
-    if (list.items && list.items.length) nav(`/track/${list.items[0].disputeId.toString()}`, { replace: true });
-  }, [list.items, nav]);
+    const l = list.latest;
+    if (!l) return;
+    const r = routes.find((x) => x.id === l.routeId) ?? routes[0];
+    nav(trackPath(r, l.req.disputeId), { replace: true });
+  }, [list.latest, routes, nav]);
   const gate = walletGate({
     networkUp: true,
     status: wallet.status,
@@ -793,7 +858,7 @@ const Latest: React.FC = () => {
         </div>
       </PageHead>
       <Panel>
-        {!wallet.ready ? (
+        {!list.canList ? (
           <>
             <h2>Connect to see your latest request</h2>
             <p className="sub" style={{ margin: "6px 0 12px" }}>
@@ -821,6 +886,22 @@ const Latest: React.FC = () => {
               <LibButton small text="Retry" type="button" onClick={list.retry} data-testid="retry-list" />
             </p>
           </Callout>
+        ) : list.items && list.items.length > 0 ? (
+          list.latest ? (
+            <LatestLoading>
+              <Loader label="Opening your latest request…" />
+            </LatestLoading>
+          ) : (
+            <>
+              <h2>Your requests</h2>
+              <p className="sub" style={{ margin: "6px 0 12px" }}>
+                {list.partial ? `Some requests may be missing. ${list.partial}` : "Open one to follow it."}
+              </p>
+              <Picker>
+                <RequestList items={list.items} />
+              </Picker>
+            </>
+          )
         ) : (
           <>
             <h2>No requests yet</h2>
@@ -893,14 +974,14 @@ const SimulateCourt: React.FC<{ req: SwitchRequest; onSent: () => void }> = ({ r
 /** The due steps anyone can run, each a button with one line on what it does; the page refreshes once it is mined. */
 const StepActions: React.FC<{
   req: SwitchRequest;
-  names: { foreign: string; home: string; testnet?: boolean };
+  names: { foreign: string; home: string; testnet?: boolean; manualRelay?: boolean };
   amount: (value: bigint) => string;
   onDone: () => Promise<unknown>;
 }> = ({ req, names, amount, onDone }) => {
   const { data } = useSetup();
   const [busy, setBusy] = useState<RequestAction | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const steps = actionModels(req, names, { selfServe: !!names.testnet, amount });
+  const steps = actionModels(req, names, { selfServe: !!names.testnet || !!names.manualRelay, amount });
   if (steps.length === 0) return null;
   const run = async (action: RequestAction) => {
     setBusy(action);
@@ -1077,9 +1158,11 @@ const readView = (): View => {
 };
 
 const Tracked: React.FC<{ id: bigint }> = ({ id }) => {
-  const { data, env } = useSetup();
+  const { data, env, route: routeData, routes } = useSetup();
   const route = useMemo(() => routeConfig(data.chains()), [data]);
-  const names = { foreign: route.from.name, home: route.to.name, testnet: route.testnet };
+  const names = { foreign: route.from.name, home: route.to.name, testnet: route.testnet, manualRelay: !!env.manualRelay };
+  // with several routes, a request of a route other than the default names its network: request IDs are per route
+  const titleOf = (prefix: string) => `${prefix} #${id.toString()}${routes.length > 1 && !routeData.isDefault ? ` · ${names.foreign}` : ""}`;
   const oracles = useOracles();
   const [view, setViewState] = useState<View>(readView);
   const setView = (v: View) => {
@@ -1215,7 +1298,7 @@ const Tracked: React.FC<{ id: bigint }> = ({ id }) => {
         {status ?? <span className="status-space" aria-hidden="true" />}
         {caseLine ?? <span className="case" aria-hidden="true" />}
       </div>
-      <FindRequest current={id} stage={req?.stage} />
+      <FindRequest currentKey={requestKey(routeData, id)} stage={req?.stage} />
     </Head>
   );
 
@@ -1223,7 +1306,7 @@ const Tracked: React.FC<{ id: bigint }> = ({ id }) => {
   if (tv.kind === "error")
     return (
       <Shell>
-        {head(`Request #${id.toString()}`)}
+        {head(titleOf("Request"))}
         <Callout tone="err" title="Could not read this request">
           <p>{tv.message}</p>
           <p style={{ marginTop: 8 }}>
@@ -1245,7 +1328,7 @@ const Tracked: React.FC<{ id: bigint }> = ({ id }) => {
   if (req === undefined)
     return (
       <Shell>
-        {head(`Request #${id.toString()}`)}
+        {head(titleOf("Request"))}
         <RequestLoading data-testid="request-loading">
           <Loader size="lg" label="Loading the request…" />
         </RequestLoading>
@@ -1254,7 +1337,7 @@ const Tracked: React.FC<{ id: bigint }> = ({ id }) => {
   if (req === null)
     return (
       <Shell>
-        {head(`No request #${id.toString()}`)}
+        {head(titleOf("No request"))}
         <Panel>
           <p className="sub">There is no request with this ID on {names.foreign}.</p>
         </Panel>
@@ -1262,8 +1345,10 @@ const Tracked: React.FC<{ id: bigint }> = ({ id }) => {
     );
 
   const canSimulate = !!data.devnet;
-  const tokenDecimals = req.paid.token === "usdc" ? usdcDecimals : 18;
-  const symbol = req.paid.token === "usdc" ? "USDC" : "ETH";
+  // paid in the route's gas token (ETH; USDC with 18 decimals on Arc) or in the USDC token (its own decimals)
+  const gas = data.chains().foreign.nativeCurrency;
+  const tokenDecimals = req.paid.token === "usdc" ? usdcDecimals : gas.decimals;
+  const symbol = req.paid.token === "usdc" ? "USDC" : gas.symbol;
   const amount = (value: bigint) => formatAmount(value, tokenDecimals, symbol);
   const failurePath = isFailurePath(req);
   const decision = decisionOf(req);
@@ -1318,7 +1403,7 @@ const Tracked: React.FC<{ id: bigint }> = ({ id }) => {
   return (
     <Shell>
       {head(
-        `Request #${req.disputeId.toString()}`,
+        titleOf("Request"),
         statusLine,
         <span className="case" data-testid="track-case">
           {req.homeDisputeId !== null
@@ -1647,22 +1732,54 @@ const Tracked: React.FC<{ id: bigint }> = ({ id }) => {
   );
 };
 
+/**
+ * `/track`: the wallet's requests. `/track/<id>`: a request of the default route (the links handed out before there
+ * were several routes keep working). `/track/<route>/<id>`: a request of another route, e.g. `/track/arc/1`.
+ */
 export const TrackPage: React.FC = () => {
-  const { disputeId } = useParams();
-  if (disputeId === undefined) return <Latest />;
-  if (!/^\d+$/.test(disputeId))
+  const params = useParams();
+  const { routes } = useSetup();
+  const target = trackTarget(params, routes);
+  if (target.kind === "list") return <Latest />;
+  if (target.kind === "redirect") return <Navigate to={target.to} replace />;
+  if (target.kind === "unknown-route")
     return (
       <Shell>
         <PageHead>
-          <h1>Not a request ID</h1>
+          <div>
+            <h1>No such network</h1>
+            <p>
+              This site has no network called “{target.slug}”. It has {routes.map((r) => r.env.foreign.name).join(" and ")}.
+            </p>
+          </div>
         </PageHead>
         <Panel>
-          <p className="sub">Request IDs are whole numbers.</p>
           <Picker>
             <OpenById />
           </Picker>
         </Panel>
       </Shell>
     );
-  return <Tracked id={BigInt(disputeId)} />;
+  if (target.kind === "not-an-id")
+    return (
+      <RouteScope id={target.routeId}>
+        <Shell>
+          <PageHead>
+            <h1>Not a request ID</h1>
+          </PageHead>
+          <Panel>
+            <p className="sub">Request IDs are whole numbers.</p>
+            <Picker>
+              <OpenById />
+            </Picker>
+          </Panel>
+        </Shell>
+      </RouteScope>
+    );
+  return (
+    <RouteScope id={target.routeId}>
+      {/* a new route is a new data seam: its state starts afresh (within a route, Tracked resets itself per ID) */}
+      <Tracked key={target.routeId} id={target.id} />
+    </RouteScope>
+  );
 };
