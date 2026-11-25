@@ -115,6 +115,7 @@ function unconfiguredSwitchData(base: SwitchData, missing: string[]): SwitchData
     approveUsdc: notSet,
     requestSwitch: notSet,
     request: notSet,
+    caseRequest: notSet,
     requests: notSet,
     watchRequest: () => () => {},
     act: notSet,

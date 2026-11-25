@@ -1,7 +1,7 @@
 // State models for reads that can be unknown or fail: the bulb read, the Track request load, the fee quote and what
 // the payment area offers after a failed submission. Pure, so unit tests can hold them.
 import type { Address, SwitchData, SwitchRequest } from "../data";
-import type { SendFailure } from "./errors";
+import { plainError, type SendFailure } from "./errors";
 
 /** A bulb read is one of these four; unknown is never drawn or said as off. */
 export type BulbRead =
@@ -41,6 +41,84 @@ export function readBulb(
     );
   void attempt(retries);
   return () => timer && clearTimeout(timer);
+}
+
+/**
+ * The bulb read Track keeps: whose bulb, on which lightbulb (each lightbulb contract keeps its own bulbs), and whether it
+ * was read while the court decides or once the request is final.
+ */
+export interface StoredBulb {
+  owner: string;
+  lightbulb?: string; // the request's lightbulb (SwitchRequest.lightbulb); absent = the active one
+  phase: "court" | "final";
+  read: BulbRead;
+}
+
+/**
+ * The bulb read Track shows: the stored one only when it is for this owner, this lightbulb and this phase. A read for
+ * another owner or another lightbulb (another request of the same owner), or one made while the court decided, is
+ * never shown once the decision is applied (it is not the result's bulb): that is loading until the read of the current
+ * phase returns. Within the court phase the last read stays shown while a refresh is in flight.
+ */
+export function shownBulb(
+  stored: StoredBulb | null,
+  owner: string | undefined,
+  phase: StoredBulb["phase"] | null,
+  lightbulb?: string,
+): BulbRead {
+  if (!owner || !phase || !stored) return BULB_LOADING;
+  if (stored.owner.toLowerCase() !== owner.toLowerCase() || stored.phase !== phase) return BULB_LOADING;
+  if ((stored.lightbulb ?? "").toLowerCase() !== (lightbulb ?? "").toLowerCase()) return BULB_LOADING;
+  return stored.read;
+}
+
+/** Something a refresh can wake on: `document` (visibilitychange) and `window` (focus). */
+type WakeTarget = Pick<EventTarget, "addEventListener" | "removeEventListener">;
+
+/**
+ * Re-reads the bulb while the court decides: every `everyMs`, and when the page is shown or focused again (jurors may
+ * leave a tab open for days). Never while a read is in flight (a new read would cancel its retries) or while the page
+ * is hidden. Returns the stop function.
+ */
+export function startBulbRefresh(
+  refresh: () => void,
+  opts: { everyMs: number; busy: () => boolean; hidden: () => boolean; wake?: { target: WakeTarget; type: string }[] },
+): () => void {
+  const tick = () => {
+    if (!opts.busy() && !opts.hidden()) refresh();
+  };
+  const timer = setInterval(tick, opts.everyMs);
+  for (const w of opts.wake ?? []) w.target.addEventListener(w.type, tick);
+  return () => {
+    clearInterval(timer);
+    for (const w of opts.wake ?? []) w.target.removeEventListener(w.type, tick);
+  };
+}
+
+/** A court case number looked up for its request (the /case page): found, not this site's case, or a failed read. */
+export type CaseLookup =
+  | { kind: "loading" }
+  | { kind: "found"; requestId: bigint }
+  | { kind: "missing" }
+  | { kind: "error"; message: string };
+
+const MAX_UINT256 = 2n ** 256n - 1n;
+
+/** A court case number as typed or in a link: whole digits within uint256 (the court's dispute IDs); null otherwise. */
+export function parseCaseNumber(s: string): bigint | null {
+  if (!/^\d+$/.test(s)) return null;
+  const n = BigInt(s);
+  return n <= MAX_UINT256 ? n : null;
+}
+
+/** Resolves a Kleros court case number to its request; a failed read becomes a plain message, never a rejection. */
+export async function lookupCase(data: Pick<SwitchData, "caseRequest">, caseId: bigint): Promise<CaseLookup> {
+  try {
+    const requestId = await data.caseRequest(caseId);
+    return requestId === null ? { kind: "missing" } : { kind: "found", requestId };
+  } catch (e) {
+    return { kind: "error", message: plainError(e) };
+  }
 }
 
 export const BANNER_STALE = "Updates unavailable—showing last known status";

@@ -36,6 +36,35 @@ export const REQUIRED_ADDRESSES = {
   home: ["HomeGateway", "KlerosCoreRuler", "Yaho", "Yaru"],
 } as const;
 
+/**
+ * The second lightbulb's key in `addresses.foreign`, optional. Blank or absent: new requests go to `GatewayLightbulb`.
+ * Set: new requests go to it, and `GatewayLightbulb` stays readable, so its requests and court cases keep their links.
+ * Both lightbulbs use the same ForeignGateway, whose dispute IDs (the request numbers) never repeat across them.
+ * It is the lightbulb of the court template in docs/court-template.json: Track shows jurors the answer that flips the
+ * bulb for its requests only.
+ */
+export const LIGHTBULB_V2 = "GatewayLightbulbV2";
+
+/** The lightbulb new requests go to: `GatewayLightbulbV2` once it is set, else `GatewayLightbulb`. */
+export function activeLightbulb(foreign: Record<string, Address>): Address | undefined {
+  return foreign[LIGHTBULB_V2] ?? foreign.GatewayLightbulb;
+}
+
+/** Every lightbulb whose requests the site reads: `GatewayLightbulb`, then `GatewayLightbulbV2` when it is set. */
+export function knownLightbulbs(foreign: Record<string, Address>): Address[] {
+  const out: Address[] = [];
+  for (const address of [foreign.GatewayLightbulb, foreign[LIGHTBULB_V2]]) {
+    if (address && !out.some((a) => a.toLowerCase() === address.toLowerCase())) out.push(address);
+  }
+  return out;
+}
+
+/** True for the lightbulb whose court template Track's juror line follows (`GatewayLightbulbV2`). */
+export function isJurorGuidedLightbulb(foreign: Record<string, Address>, lightbulb: string): boolean {
+  const v2 = foreign[LIGHTBULB_V2];
+  return !!v2 && v2.toLowerCase() === lightbulb.toLowerCase();
+}
+
 const LOCAL_HOSTS = new Set(["127.0.0.1", "localhost"]);
 
 /** The devnet only ever runs on this machine: anything else could be a public chain. */

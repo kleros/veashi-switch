@@ -45,6 +45,8 @@ const rep = (leg: OracleReport["leg"], status: OracleReport["status"], ...ids: n
 function req(stage: RequestStage, over: Partial<SwitchRequest> = {}): SwitchRequest {
   return {
     disputeId: 7n,
+    lightbulb: "0x9b2F1d258F7ded62874807c6DD15247b5C6Cff37",
+    jurorGuide: true,
     homeDisputeId: null,
     owner: "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266",
     selection: { oracleIds: [0, 1, 2], threshold: 2 },

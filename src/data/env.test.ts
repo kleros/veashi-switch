@@ -1,5 +1,13 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { explorerTxUrl, isLocalRpcUrl, parseDevnetEnv, scannerTxUrl } from "./env";
+import {
+  activeLightbulb,
+  explorerTxUrl,
+  isJurorGuidedLightbulb,
+  isLocalRpcUrl,
+  knownLightbulbs,
+  parseDevnetEnv,
+  scannerTxUrl,
+} from "./env";
 import { SwitchError } from "./errors";
 import { createSwitchData, createWagmiConfig, loadDevnetEnv, loadEnv, missingContracts } from "./index";
 import { A, sampleEnv } from "./testing";
@@ -141,6 +149,38 @@ describe("testnet config parsing", () => {
     expect(env.addresses.home.KlerosCoreRuler).toBeUndefined();
     expect(env.addresses.foreign.ForeignGateway).toBe(addresses.foreign.ForeignGateway);
   });
+  it("GatewayLightbulbV2 blank: new requests go to GatewayLightbulb, the only lightbulb read, and no juror line", () => {
+    const json = testnetJson();
+    const addresses = json.addresses as { foreign: Record<string, string>; home: Record<string, string> };
+    addresses.foreign.GatewayLightbulbV2 = "";
+    const { foreign } = parseDevnetEnv(json).addresses;
+    expect(foreign.GatewayLightbulbV2).toBeUndefined();
+    expect(activeLightbulb(foreign)).toBe(addresses.foreign.GatewayLightbulb);
+    expect(knownLightbulbs(foreign)).toEqual([addresses.foreign.GatewayLightbulb]);
+    expect(isJurorGuidedLightbulb(foreign, addresses.foreign.GatewayLightbulb)).toBe(false);
+  });
+  it("GatewayLightbulbV2 set: new requests go to it, both lightbulbs are read, and only its requests get the juror line", () => {
+    const json = testnetJson();
+    const addresses = json.addresses as { foreign: Record<string, string>; home: Record<string, string> };
+    const first = addresses.foreign.GatewayLightbulb;
+    const second = A(42);
+    addresses.foreign.GatewayLightbulbV2 = second;
+    const { foreign } = parseDevnetEnv(json).addresses;
+    expect(activeLightbulb(foreign)).toBe(second);
+    expect(knownLightbulbs(foreign)).toEqual([first, second]);
+    expect(isJurorGuidedLightbulb(foreign, second.toLowerCase())).toBe(true);
+    expect(isJurorGuidedLightbulb(foreign, first)).toBe(false);
+    // the same address twice is one lightbulb
+    expect(knownLightbulbs({ ...foreign, GatewayLightbulbV2: first.toLowerCase() as `0x${string}` })).toEqual([first]);
+    // a malformed one is refused like any other address
+    addresses.foreign.GatewayLightbulbV2 = "0x1234";
+    expect(() => parseDevnetEnv(json)).toThrow(/GatewayLightbulbV2/);
+  });
+  it("the devnet has one lightbulb: no GatewayLightbulbV2", () => {
+    const { foreign } = parseDevnetEnv(sampleEnv()).addresses;
+    expect(knownLightbulbs(foreign)).toEqual([foreign.GatewayLightbulb]);
+    expect(activeLightbulb(foreign)).toBe(foreign.GatewayLightbulb);
+  });
   it("ignores blank optional addresses but rejects malformed ones", () => {
     const json = testnetJson();
     (json.addresses.foreign as Record<string, string>).CCIPReporter = "";
@@ -212,6 +252,9 @@ describe("loadEnv on a testnet build", () => {
     expect(env.foreign.chainId).toBe(84532);
     expect(env.home.chainId).toBe(421614);
     expect(missingContracts(env)).toEqual([]);
+    // The first lightbulb stays set (its requests and cases keep their links); the second is blank or an address.
+    expect(env.addresses.foreign.GatewayLightbulb).toMatch(/^0x[0-9a-fA-F]{40}$/);
+    expect(knownLightbulbs(env.addresses.foreign).length).toBeGreaterThanOrEqual(1);
     // Blank until the kleros/vea veashi-scanner has a public URL; either unset or an https base.
     expect(env.scannerUrl === null || env.scannerUrl.startsWith("https://")).toBe(true);
     expect(fetch).not.toHaveBeenCalled();

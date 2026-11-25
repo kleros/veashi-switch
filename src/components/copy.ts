@@ -59,12 +59,14 @@ export function helpStages(network: CopyNetwork): { lead: string; rest: string }
     {
       lead: "The court decides.",
       rest: testnet
-        ? "The decision is On or Off. On the test networks the court's ruler account gives it."
+        ? "The decision is On or Off, given by Kleros Court's jurors in the court case shown on Track. The court can also refuse to arbitrate; the bulb then stays as it is."
         : "The decision is On or Off. On this local demo you give the decision yourself from the Track page.",
     },
     {
       lead: "The decision comes back the same way.",
-      rest: "The same oracles carry it back, and your bulb switches.",
+      rest: testnet
+        ? "The same oracles carry it back, and it is applied to your bulb."
+        : "The same oracles carry it back, and your bulb switches.",
     },
     {
       lead: "If the case cannot be opened in time,",
@@ -84,7 +86,10 @@ export function helpTerms(network: CopyNetwork): { term: string; text: string }[
           text: "Delivering a message, opening the case and returning the answer are open to anyone. Track shows a button for each step that is due; any wallet can run it.",
         }
       : { term: "Automatic relay service", text: "A local service that delivers messages once enough oracles agree. You never wait on it to pay." },
-    { term: "Court case", text: "The case the request opens on the court's chain. Its ID is shown beside the request ID." },
+    {
+      term: "Court case",
+      text: "The case the request opens on the court's chain. Its ID is shown beside the request ID, and Find on Track opens a request by either one.",
+    },
     {
       term: "Creation window",
       text: "How long the court side has to open the case after the request arrives. Once it closes, anyone can send the failure back.",

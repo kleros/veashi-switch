@@ -22,6 +22,12 @@ export const PageHead = styled.div`
   justify-content: space-between;
   gap: 12px;
   padding: 24px 0 16px;
+  h1 {
+    overflow-wrap: anywhere; /* a long number in a title (a pasted court case or request ID) wraps, no sideways scroll */
+  }
+  h1[tabindex="-1"]:focus {
+    outline: none; /* focused only by script, to announce a result: not a control */
+  }
   p {
     color: var(--text-2);
     max-width: 70ch;

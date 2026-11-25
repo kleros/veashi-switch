@@ -1,29 +1,34 @@
 import React, { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
-import { Copiable, Field, Tabs, Tag } from "@kleros/ui-components-library";
+import { Copiable, Tabs, Tag } from "@kleros/ui-components-library";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import styled from "styled-components";
 import type { Oracle, RequestAction, StageTx, SwitchRequest } from "../data";
 import { isFailurePath, isFinal } from "../data/lifecycle";
 import { BulbSvg } from "../components/Bulb";
 import { Circuit } from "../components/Circuit";
-import { requestModel } from "../components/circuitModel";
+import { requestModel, type BulbState } from "../components/circuitModel";
+import { OpenById, Picker } from "../components/FindById";
 import { Loader } from "../components/Loader";
 import { plainError } from "../components/errors";
-import { clockTime, formatAmount, rulingName, shortAddress, shortHash } from "../components/format";
+import { clockTime, decisionName, decisionOf, formatAmount, shortAddress, shortHash } from "../components/format";
 import { listState } from "../components/route";
 import {
   readBulb,
+  shownBulb,
+  startBulbRefresh,
   startHealthPoll,
   trackInitial,
   trackReducer,
   trackView,
-  type BulbRead,
+  type StoredBulb,
 } from "../components/readState";
 import { routeConfig, walletGate } from "../components/route";
 import { useSetup } from "../components/setup";
 import { useCopy } from "../components/Toast";
 import {
   actionModels,
+  bulbPhase,
+  bulbReadKey,
   DECISION_SUBMITTED,
   logEntries,
   messageLinks,
@@ -53,6 +58,8 @@ import { useWallet, WalletStrip } from "../components/wallet";
 import { oracleColor } from "../theme/tokens";
 
 const HEALTH_MS = 4000;
+// While the court decides, the requester's bulb is read again this often (and when the tab is shown again).
+const BULB_REFRESH_MS = 30_000;
 
 const Head = styled(PageHead)`
   align-items: flex-start;
@@ -68,6 +75,13 @@ const Head = styled(PageHead)`
     white-space: nowrap;
   }
   .status-space {
+    min-height: 1.5em;
+  }
+  /* the court case line: always one line high, so the head keeps its height from loading to loaded */
+  .case {
+    color: var(--text-2);
+    font-size: var(--fs-sm);
+    line-height: 1.5;
     min-height: 1.5em;
   }
   .find button {
@@ -135,6 +149,14 @@ const NowPanel = styled(Panel)`
     }
     .actions {
       justify-items: stretch;
+    }
+    /* each label above its value: a long label ("Requester's bulb now") must not squeeze the values to a sliver */
+    .meta {
+      grid-template-columns: minmax(0, 1fr);
+      gap: 2px;
+    }
+    .meta dd + dt {
+      margin-top: 8px;
     }
   }
 `;
@@ -235,6 +257,7 @@ const FindBox = styled.dialog`
   .in {
     padding: 20px;
     display: grid;
+    grid-template-columns: minmax(0, 1fr); /* the dialog's width bounds the form: nothing pokes out on a phone */
     gap: 16px;
   }
   .top {
@@ -537,33 +560,6 @@ const LatestLoading = styled.div`
   color: var(--text-3);
 `;
 
-const Picker = styled.div`
-  display: grid;
-  gap: 10px;
-  min-width: min(100%, 300px);
-  max-width: 480px;
-  form > div:first-child > div,
-  form input {
-    width: 100%;
-  }
-  .lbl {
-    font-weight: 600;
-    font-size: var(--fs-sm);
-  }
-  form {
-    display: flex;
-    gap: 8px;
-    align-items: flex-start;
-  }
-  form > button {
-    min-height: 44px;
-  }
-  .msg {
-    font-size: var(--fs-sm);
-    color: var(--text-2);
-  }
-`;
-
 const ViewTabs: React.FC<{ view: View; onChange: (v: View) => void }> = ({ view, onChange }) => {
   const box = useRef<HTMLDivElement>(null);
   // The library Tabs render plain buttons: give them type, their pressed state and test ids after each render.
@@ -619,42 +615,6 @@ const TxCopy: React.FC<{ tx: StageTx; testId?: string }> = ({ tx, testId }) => {
     >
       {txName(tx)} <span className="h">tx {shortHash(tx.hash)}</span>
     </TxButton>
-  );
-};
-
-/** Look up a request by its number, with a persistent label and inline validation. */
-const OpenById: React.FC<{ onGo?: () => void }> = ({ onGo }) => {
-  const nav = useNavigate();
-  const [v, setV] = useState("");
-  const value = v.trim();
-  const invalid = value !== "" && !/^\d+$/.test(value);
-  return (
-    <form
-      onSubmit={(e) => {
-        e.preventDefault();
-        if (value && !invalid) {
-          nav(`/track/${value}`);
-          onGo?.();
-        }
-      }}
-      noValidate
-    >
-      <div style={{ flex: 1 }}>
-        <label htmlFor="open-id" className="lbl">
-          Request ID
-        </label>
-        <Field
-          id="open-id"
-          placeholder="For example 1"
-          inputMode="numeric"
-          value={v}
-          variant={invalid ? "error" : undefined}
-          message={invalid ? "Use digits only, for example 1." : undefined}
-          onChange={(e) => setV(e.target.value)}
-        />
-      </div>
-      <LibButton variant="secondary" text="Open" type="submit" disabled={!value || invalid} style={{ marginTop: 24 }} />
-    </form>
   );
 };
 
@@ -756,7 +716,7 @@ const FindBody: React.FC<{
                   >
                     Request #{r.disputeId.toString()} ·{" "}
                     {r.stage === "switched"
-                      ? `Complete · ${r.ruling === 1 ? "On" : "Off"}`
+                      ? `Complete · ${decisionOf(r) === "refused" ? "bulb unchanged" : decisionName(decisionOf(r))}`
                       : r.stage === "closed"
                         ? r.refund?.claimed
                           ? "Closed · refunded"
@@ -837,14 +797,14 @@ const Latest: React.FC = () => {
           <>
             <h2>Connect to see your latest request</h2>
             <p className="sub" style={{ margin: "6px 0 12px" }}>
-              Or open any request by its ID. No wallet is needed to follow one.
+              Or open any request below by its request ID or its court case number. No wallet is needed to follow one.
             </p>
             <WalletStrip
               gate={
                 gate.state === "disconnected"
                   ? {
                       ...gate,
-                      message: "Connect a wallet to see its requests, or enter a request ID below.",
+                      message: "Connect a wallet to see its requests.",
                     }
                   : gate
               }
@@ -1184,32 +1144,54 @@ const Tracked: React.FC<{ id: bigint }> = ({ id }) => {
       );
   }, [data, req?.paid.token]);
 
-  // The wallet's current bulb, read from the same source as the Request page, once the request has switched it.
-  // null while the read is pending; "failed" once a few short retries were rejected. Never inferred from the ruling.
-  const [bulbStored, setBulbStored] = useState<{
-    owner: string;
-    read: BulbRead;
-  } | null>(null);
+  // The requester's current bulb, read from the same source as the Request page: while the court decides (jurors rule
+  // the opposite of it), and once the request has switched it or closed without changing it. Loading while the read
+  // is pending; "failed" once a few short retries were rejected. Never inferred from the ruling.
+  const [bulbStored, setBulbStored] = useState<StoredBulb | null>(null);
   const [bulbTry, setBulbTry] = useState(0);
+  const [bulbTick, setBulbTick] = useState(0);
+  const bulbBusy = useRef(false);
   const owner = req?.owner;
-  // Read once the request has switched the bulb, or closed without changing it.
-  const switched = req?.stage === "switched" || req?.stage === "closed";
+  // The bulb is the one on the request's own lightbulb: each lightbulb contract keeps its own bulbs.
+  const lightbulb = req?.lightbulb;
+  const phase = bulbPhase(req?.stage);
+  const readKey = bulbReadKey(req, bulbTick);
   useEffect(() => {
-    if (!owner || !switched) return;
+    if (!owner || !phase) return;
     let live = true;
+    bulbBusy.current = true;
     const stop = readBulb(
-      data,
+      { bulbIsOn: (o) => data.bulbIsOn(o, lightbulb) },
       owner,
       () => live,
-      (read) => setBulbStored({ owner, read })
+      (read) => {
+        bulbBusy.current = false;
+        setBulbStored({ owner, lightbulb, phase, read });
+      }
     );
     return () => {
       live = false;
+      bulbBusy.current = false;
       stop();
     };
-  }, [data, owner, switched, req?.updatedAt, bulbTry]);
-  // what was read for another request's owner is not shown; unknown is neither on nor off
-  const bulbRead: BulbRead = owner && bulbStored && bulbStored.owner === owner ? bulbStored.read : { kind: "loading" };
+  }, [data, owner, lightbulb, readKey, bulbTry]); // eslint-disable-line react-hooks/exhaustive-deps
+  // While the court decides the bulb can change (another request of the same owner is applied): read it again now and
+  // then, keeping the last value on screen meanwhile. A failed re-read shows as unavailable, never as the old value.
+  useEffect(() => {
+    if (phase !== "court") return;
+    return startBulbRefresh(() => setBulbTick((t) => t + 1), {
+      everyMs: BULB_REFRESH_MS,
+      busy: () => bulbBusy.current,
+      hidden: () => document.visibilityState === "hidden",
+      wake: [
+        { target: document, type: "visibilitychange" },
+        { target: window, type: "focus" },
+      ],
+    });
+  }, [phase]);
+  // What was read for another request's owner, or before the decision was applied, is not shown as the result's bulb;
+  // unknown is neither on nor off.
+  const bulbRead = shownBulb(bulbStored, owner, phase, lightbulb);
   const mine = !!owner && !!wallet.address && wallet.address.toLowerCase() === owner.toLowerCase();
 
   const model = useMemo(
@@ -1224,13 +1206,14 @@ const Tracked: React.FC<{ id: bigint }> = ({ id }) => {
       seen.current.set(e.key, firstRender.current ? 0 : now);
   if (req) firstRender.current = false;
 
-  // Without a status line (loading, error, not found) the head keeps that line's space, so it has one height from
-  // the loading state to whatever replaces it.
-  const head = (title: React.ReactNode, status?: React.ReactNode) => (
+  // Without a status line and a court case line (loading, error, not found) the head keeps their space, so it has one
+  // height from the loading state to whatever replaces it.
+  const head = (title: React.ReactNode, status?: React.ReactNode, caseLine?: React.ReactNode) => (
     <Head>
       <div className="titles">
         <h1 data-testid="track-title">{title}</h1>
         {status ?? <span className="status-space" aria-hidden="true" />}
+        {caseLine ?? <span className="case" aria-hidden="true" />}
       </div>
       <FindRequest current={id} stage={req?.stage} />
     </Head>
@@ -1283,6 +1266,7 @@ const Tracked: React.FC<{ id: bigint }> = ({ id }) => {
   const symbol = req.paid.token === "usdc" ? "USDC" : "ETH";
   const amount = (value: bigint) => formatAmount(value, tokenDecimals, symbol);
   const failurePath = isFailurePath(req);
+  const decision = decisionOf(req);
   let n = nowModel(req, oracles, names, { canSimulate, bulb: bulbRead, mine, amount });
   if (ruled && req.stage === "dispute-received")
     n = {
@@ -1292,11 +1276,30 @@ const Tracked: React.FC<{ id: bigint }> = ({ id }) => {
       statusText: "Decision submitted",
       next: "Automatic return delivery",
       action: null,
+      bulbNow: n.bulbNow && { ...n.bulbNow, juror: null },
     };
   const paused = req.stage === "failed" ? pausedModel(req, names) : null;
   const oName = (oid: number) => oracles.find((o) => o.id === oid)?.name ?? `Oracle ${oid}`;
   const doneCount = entries.filter((e) => !e.report && e.state === "done").length;
-  const bulb = model?.bulb ?? "waiting";
+  // The status card's bulb: while the court decides it is the requester's bulb now (what "bulb now" says and jurors
+  // flip), not an unlit "waiting" bulb that reads as off; the Circuit keeps the outcome's bulb.
+  const courtBulb = phase === "court";
+  const bulb: BulbState = courtBulb
+    ? bulbRead.kind === "known"
+      ? bulbRead.on
+        ? "on"
+        : "off"
+      : "unknown"
+    : (model?.bulb ?? "waiting");
+  const whose = mine ? "Your bulb" : "Requester's bulb";
+  const pendingNote = req.stage === "dispute-received" && !ruled ? "the court has not decided yet" : "the decision is not applied yet";
+  const bulbText = courtBulb
+    ? bulbRead.kind === "known"
+      ? `${whose} is ${bulbRead.on ? "on" : "off"} now; ${pendingNote}`
+      : bulbRead.kind === "failed"
+        ? `${whose} is unavailable, the check failed`
+        : `${whose} is being checked`
+    : `Bulb is ${bulb === "waiting" ? "waiting for the decision" : bulb === "unknown" ? (bulbRead.kind === "failed" ? "unavailable, the check failed" : "being checked") : bulb}`;
   const stageEntries = entries.filter((e) => !e.report);
   const reportsFor = (key: string) =>
     entries.filter((e) => e.report && e.report.leg === (key === "dispute-relaying" ? "dispute" : "ruling"));
@@ -1314,7 +1317,17 @@ const Tracked: React.FC<{ id: bigint }> = ({ id }) => {
 
   return (
     <Shell>
-      {head(`Request #${req.disputeId.toString()}`, statusLine)}
+      {head(
+        `Request #${req.disputeId.toString()}`,
+        statusLine,
+        <span className="case" data-testid="track-case">
+          {req.homeDisputeId !== null
+            ? `Court case #${req.homeDisputeId.toString()} · ${names.home}`
+            : failurePath || req.actions.includes("send-failure")
+              ? "Court case: not opened"
+              : "Court case: not opened yet"}
+        </span>
+      )}
 
       {tv.kind === "request" && tv.banner && (
         <div style={{ marginBottom: "var(--gap)" }}>
@@ -1339,10 +1352,9 @@ const Tracked: React.FC<{ id: bigint }> = ({ id }) => {
       <NowPanel aria-label="Current status" data-testid="now" aria-live="polite">
         <BulbSvg state={bulb} />
         <div className="main">
-          <p
-            className="visually-hidden"
-            data-testid="bulb-state-text"
-          >{`Bulb is ${bulb === "waiting" ? "waiting for the decision" : bulb === "unknown" ? (bulbRead.kind === "failed" ? "unavailable, the check failed" : "being checked") : bulb}`}</p>
+          <p className="visually-hidden" data-testid="bulb-state-text">
+            {bulbText}
+          </p>
           <h2 data-testid="now-title">{n.title}</h2>
           <p className="sub" style={{ marginTop: 6 }}>
             {n.body}
@@ -1355,6 +1367,12 @@ const Tracked: React.FC<{ id: bigint }> = ({ id }) => {
                   {n.bulbNow.value}
                   {n.bulbNow.differs && <span className="differs"> · {n.bulbNow.differs}</span>}
                 </dd>
+              </>
+            )}
+            {n.bulbNow?.juror && (
+              <>
+                <dt>For jurors</dt>
+                <dd data-testid="juror-line">{n.bulbNow.juror}</dd>
               </>
             )}
             {n.action !== "simulate" && (
@@ -1397,7 +1415,7 @@ const Tracked: React.FC<{ id: bigint }> = ({ id }) => {
         <div className="actions">
           {n.action === "simulate" && <SimulateCourt req={req} onSent={() => setRuled(true)} />}
           <StepActions req={req} names={names} amount={amount} onDone={load} />
-          {(req.stage === "switched" || req.stage === "closed") && bulbRead.kind === "failed" && (
+          {n.bulbNow?.retry && (
             <LibButton
               small
               variant="secondary"
@@ -1496,7 +1514,13 @@ const Tracked: React.FC<{ id: bigint }> = ({ id }) => {
             <div>
               <dt>Decision</dt>
               <dd data-testid="ruling">
-                {failurePath ? "None: the case was not opened" : req.ruling === 0 ? "Not decided yet" : rulingName(req.ruling)}
+                {failurePath
+                  ? "None: the case was not opened"
+                  : decision === "pending"
+                    ? "Not decided yet"
+                    : decision === "refused"
+                      ? "Refused to arbitrate · bulb unchanged"
+                      : decisionName(decision)}
               </dd>
             </div>
             {req.refund && (
@@ -1577,11 +1601,18 @@ const Tracked: React.FC<{ id: bigint }> = ({ id }) => {
                     {e.title}: {e.tech}
                   </p>
                 ))}
-                <p className="mono">Ruling code {req.ruling} (1 = On, 2 = Off)</p>
+                <p className="mono">
+                  {failurePath
+                    ? "Ruling code: none, the case was not opened"
+                    : decision === "pending"
+                      ? "Ruling code: none yet"
+                      : `Ruling code ${req.ruling} (0 = refused to arbitrate, 1 = On, 2 = Off)`}
+                </p>
                 {req.stage === "switched" && (
                   <p className="mono">
-                    LightbulbSwitched({shortAddress(req.owner)}, {req.disputeId.toString()},{" "}
-                    {req.ruling === 1 ? "true" : "false"})
+                    {decision === "refused"
+                      ? `LightbulbSwitched(${shortAddress(req.owner)}, ${req.disputeId.toString()}, _isOn): ruling 0 leaves the bulb as it was`
+                      : `LightbulbSwitched(${shortAddress(req.owner)}, ${req.disputeId.toString()}, ${decision === "on" ? "true" : "false"})`}
                   </p>
                 )}
                 {req.stage === "closed" && (

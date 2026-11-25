@@ -28,6 +28,8 @@ yarn devnet stop       # stop only the processes recorded in .devnet/
 
 yarn dev               # the app on Vite's dev server, against the running devnet
 yarn dev --mode fake   # in-memory data, no chain (a development aid)
+                       # ?jurors=1: no local decision, a request stays in court as jurors see it
+                       # ?refused=1: adds request #90, which the court refused to arbitrate
 
 yarn check-types
 yarn test              # vitest unit tests (src/**/*.test.ts)
@@ -57,7 +59,9 @@ A request goes through seven steps, each shown on Track:
 
 **When the case cannot be opened.** Once `creationTimeout` has passed since the delivery (step 3) and the case is still not open, anyone can call `HomeGateway.sendCreationFailure`. The failure goes back over the same oracles; `ForeignGateway.executeRuling` then calls `GatewayLightbulb.onDisputeCreationFailed` (`LightbulbRequestFailed`), so the request closes with the bulb unchanged and the juror fees become refundable. `GatewayLightbulb.claimRefund`, which anyone can call, pays them to the requester; the oracle fees are spent. Track shows this path as *Case not opened → Failure returning → Request closed*, with the refund and its claim.
 
-**Who runs each step.** On the devnet the relayer (`scripts/relayer.ts`) delivers both legs, opens every delivered case (retrying while the call reverts) and executes every ruling or failure that arrives; it never sends a creation failure. Track therefore offers only *Send the failure back* and *Claim refund*. On the testnets no relay service is assumed: Track shows a button for each step that is due (deliver, open the case, send the failure back, deliver back, apply the result, claim the refund), and any connected wallet can run it. The ruling itself is given outside the app, by the testnet `KlerosCoreRuler`'s ruler account.
+**Court case numbers.** Kleros Court shows jurors only its own case number. `/case/<number>` finds the request that opened that case (`HomeGateway.disputeIDtoHash`, then `ForeignGateway.disputeHashtoDisputeData`: two view calls, no event scan) and opens its Track page; Find on Track takes a court case number too. `/case` (or `/case/`) without a number asks for one. While the court decides, Track shows the requester's current bulb (read again every 30 seconds and when the tab is shown again) and, on the testnets for requests on `GatewayLightbulbV2`, which answer flips it, for jurors (see [docs/court-template.md](docs/court-template.md) and [A second lightbulb](#a-second-lightbulb-gatewaylightbulbv2)); the devnet has no jurors, you decide On or Off. A ruling of 0 is the court refusing to arbitrate: the request completes with the bulb unchanged.
+
+**Who runs each step.** On the devnet the relayer (`scripts/relayer.ts`) delivers both legs, opens every delivered case (retrying while the call reverts) and executes every ruling or failure that arrives; it never sends a creation failure. Track therefore offers only *Send the failure back* and *Claim refund*. On the testnets no relay service is assumed: Track shows a button for each step that is due (deliver, open the case, send the failure back, deliver back, apply the result, claim the refund), and any connected wallet can run it. The ruling itself is given outside the app: on the testnets by Kleros Court's jurors (the `KlerosCoreRuler` entry of `config/testnet.json` holds the testnet KlerosCore), on the devnet by `KlerosCoreRuler` in manual mode.
 
 ## Layout
 
@@ -87,6 +91,27 @@ A changed contract ABI also needs `src/data/abi.ts` updated. If `feat/veashi-gat
 The same app builds as a static site that talks to public testnets: Base Sepolia (foreign chain) and Arbitrum Sepolia (home chain). The build is selected by `VITE_VEASHI_NETWORK=testnet`, which `netlify.toml` sets; without it the app loads `/devnet.json` as before. There is no fake mode and no test wallet in a testnet build: only the injected (browser) wallet.
 
 Settings live in `config/testnet.json`, bundled at build time: for each chain the id (only Base Sepolia, Arbitrum Sepolia and Sepolia are accepted), RPC URL (https), block explorer URL, `fromBlock` (the deployment block, where event scans start), and the contract addresses. `Yaho` and `Yaru` are filled in from `@kleros/veashi-sdk`. `ForeignGateway`, `GatewayLightbulb`, `USDC`, `HomeGateway` and `KlerosCoreRuler` are empty until the contracts are deployed; the site still loads with them empty and renders every page, but nothing can be read, requested or tracked: each read fails at once, before any RPC call, with an inline error naming the unset contracts. To go live, set those addresses and the `fromBlock` values, commit, and let Netlify rebuild. The deployed gateways must be the ones of the pinned kleros-v2 commit (two-step creation): the app reads `getReceivedDispute`, `creationTimeout` and the creation-failure events, and older gateways do not have them. The oracles' reporters and adapters are read from the ForeignGateway, so they need no entry here.
+
+### A second lightbulb (`GatewayLightbulbV2`)
+
+`addresses.foreign.GatewayLightbulbV2` is optional and ships blank, which leaves it off. A lightbulb's dispute template is fixed when it is deployed, so a new template needs a new `GatewayLightbulb`; this key lets the site move to it without breaking the first one's links.
+
+- **Blank:** everything uses `GatewayLightbulb`, as before.
+- **Set:** new requests, the fee quote, the USDC approval and the Request page's bulb use `GatewayLightbulbV2`. `GatewayLightbulb` stays readable: Track, Find, the request list and `/case/<number>` look a request up on both, so `/track/<id>` and `/case/<number>` keep working for the first lightbulb's requests and cases.
+- Request numbers are the ForeignGateway's dispute IDs. Both lightbulbs must use the configured `ForeignGateway`, which never gives out an ID twice, so a number names one request whichever lightbulb it is on.
+- Each lightbulb contract keeps its own bulbs. Track reads the bulb on the request's own lightbulb; the Request page shows your bulb on the active one, where your next request goes.
+- `GatewayLightbulbV2` is the lightbulb registered with the court template in [docs/court-template.md](docs/court-template.md). While its requests are in court, Track tells jurors which answer flips the bulb. Requests on `GatewayLightbulb` (template 197, with other answers) get no such line.
+
+The switch, once the new lightbulb is deployed, is one line in `config/testnet.json`:
+
+```diff
+-      "GatewayLightbulbV2": "",
++      "GatewayLightbulbV2": "0x<the new GatewayLightbulb>",
+```
+
+Leave `GatewayLightbulb` and `foreign.fromBlock` as they are. Moving `fromBlock` to the new lightbulb's deploy block would hide the first lightbulb's requests from Track (event scans start there).
+
+The HomeGateway's `CrossChainDisputeIncoming`, which gives the transaction that opened a court case, is read in both shapes it has had: the eight-argument one of the pinned kleros-v2 commit (the devnet, and the testnet up to its HomeGateway upgrade) and the six-argument one of kleros-v2 `dev`, which the upgraded HomeGateway emits. The court case number itself is read from the HomeGateway's state, so it does not depend on either.
 
 `scannerUrl` (optional, https) is the base URL of [Veashi Scanner](https://github.com/kleros/vea/tree/dev/veashi-scanner) (`kleros/vea`), the Hashi cross-chain message explorer. When it is set, Track links each leg's message there, by the transaction that dispatched it: the request on the foreign chain, and the ruling or the creation failure on the home chain (`<scannerUrl>/tx/<chainId>/<txHash>`). Without it, or on the devnet, there are no scanner links.
 

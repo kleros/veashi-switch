@@ -1,6 +1,6 @@
 import { formatUnits } from "viem";
-import type { Hex, RequestStage } from "../data";
-import { stageIndex as lifecycleStageIndex } from "../data/lifecycle";
+import type { Hex, RequestStage, SwitchRequest } from "../data";
+import { isFailurePath, reachedStage, stageIndex as lifecycleStageIndex } from "../data/lifecycle";
 
 /** Digits after the point needed to show `amount` exactly (trailing zeros dropped). */
 function exactFraction(amount: bigint, decimals: number): string {
@@ -38,7 +38,21 @@ export { STAGES } from "../data/lifecycle";
 /** The step of a stage, 0 to 6, on either path; -1 for a paused request. */
 export const stageIndex = (s: RequestStage) => (s === "failed" ? -1 : lifecycleStageIndex(s));
 
-export const rulingName = (r: 0 | 1 | 2) => (r === 1 ? "On" : r === 2 ? "Off" : "not decided yet");
+/**
+ * What the court decided. `ruling` is 0 both before a decision and after one that refused to arbitrate (0 is the
+ * court's "Refuse to arbitrate" answer: GatewayLightbulb.rule then leaves the bulb unchanged), so the stage tells them
+ * apart: a ruling is known once the request reached "ruled" on the court path.
+ */
+export type Decision = "pending" | "on" | "off" | "refused";
+
+export function decisionOf(req: SwitchRequest): Decision {
+  if (isFailurePath(req) || lifecycleStageIndex(reachedStage(req)) < lifecycleStageIndex("ruled")) return "pending";
+  return req.ruling === 1 ? "on" : req.ruling === 2 ? "off" : "refused";
+}
+
+/** A decision in a sentence ("The court decided On"); a refusal reads "refused to arbitrate". */
+export const decisionName = (d: Decision) =>
+  d === "on" ? "On" : d === "off" ? "Off" : d === "refused" ? "refused to arbitrate" : "not decided yet";
 
 export const isHex = (s: string): s is Hex => /^0x[0-9a-fA-F]*$/.test(s);
 
