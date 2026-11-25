@@ -2,7 +2,15 @@
 // own RPC allows 200 blocks, publicnode 50,000, drpc's free plan 10,000). This reads events over a block range in as
 // few calls as the RPC allows: in chunks of the limit an error states, else halving the range whenever it is refused.
 // Reads up to the head are cached per query, so polling the same query only reads the blocks since the last read.
-import type { Abi, ContractEventName, GetContractEventsParameters, GetContractEventsReturnType, PublicClient } from "viem";
+import {
+  toEventSelector,
+  type Abi,
+  type AbiEvent,
+  type ContractEventName,
+  type GetContractEventsParameters,
+  type GetContractEventsReturnType,
+  type PublicClient,
+} from "viem";
 
 const LIMIT_MESSAGE =
   /block range|range is too (large|wide)|range too (large|wide)|exceed|limit|too many|query returned more than|response size|result window|too large|too big|max(imum)? (range|block)|ranges? over [\d,]+ blocks/i;
@@ -58,8 +66,17 @@ const learnedSpan = new WeakMap<object, bigint>();
 const queryCache = new WeakMap<object, Map<string, { fromBlock: bigint; toBlock: bigint; logs: unknown[] }>>();
 const REORG_BLOCKS = 32n;
 
-const queryKey = (params: object) =>
-  JSON.stringify(params, (k, v) => (k === "abi" ? undefined : typeof v === "bigint" ? v.toString() : v));
+// The abi is not part of the key, except for a query without an eventName: that one reads every event of its abi
+// (HomeGateway's CrossChainDisputeIncoming in both shapes), so those events are what it asks for, and two such queries
+// on one address must not share an entry.
+const queryKey = (params: object) => {
+  const { abi, eventName } = params as { abi?: unknown; eventName?: unknown };
+  const events =
+    eventName === undefined && Array.isArray(abi)
+      ? (abi as { type?: unknown }[]).filter((item) => item.type === "event").map((item) => toEventSelector(item as AbiEvent))
+      : undefined;
+  return JSON.stringify({ ...params, events }, (k, v) => (k === "abi" ? undefined : typeof v === "bigint" ? v.toString() : v));
+};
 
 type PagedParameters<abi extends Abi | readonly unknown[], eventName, strict> = Omit<
   GetContractEventsParameters<abi, eventName extends ContractEventName<abi> | undefined ? eventName : undefined, strict extends boolean | undefined ? strict : undefined>,

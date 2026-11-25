@@ -135,6 +135,29 @@ describe("getContractEventsPaged: stated limits and the per-query cache", () => 
       { fromBlock: 1n, toBlock: 100n },
     ]);
   });
+  it("keeps queries without an eventName apart by the events of their abi, on the same address", async () => {
+    // A query without an eventName reads every event of its abi (Track's scan of both CrossChainDisputeIncoming shapes)
+    const pong = [{ type: "event", name: "Pong", inputs: [] }] as const;
+    const { client, calls } = fakeClient(1_000_000n);
+    await getContractEventsPaged(client, { abi, address }, { fromBlock: 1n });
+    await getContractEventsPaged(client, { abi: pong, address }, { fromBlock: 1n });
+    await getContractEventsPaged(client, { abi: pong, address }, { fromBlock: 1n });
+    await getContractEventsPaged(client, { abi: [...abi, ...pong], address }, { fromBlock: 1n });
+    expect(calls).toEqual([
+      { fromBlock: 1n, toBlock: 100n },
+      { fromBlock: 1n, toBlock: 100n }, // other events: not the first query's entry
+      { fromBlock: 69n, toBlock: 100n }, // the same query again: only the tail
+      { fromBlock: 1n, toBlock: 100n },
+    ]);
+    // with an eventName the abi stays out of the key, as before
+    calls.length = 0;
+    await getContractEventsPaged(client, { abi, address, eventName: "Ping" }, { fromBlock: 1n });
+    await getContractEventsPaged(client, { abi: [...abi, ...pong], address, eventName: "Ping" }, { fromBlock: 1n });
+    expect(calls).toEqual([
+      { fromBlock: 1n, toBlock: 100n },
+      { fromBlock: 69n, toBlock: 100n },
+    ]);
+  });
 });
 
 describe("isRangeLimitError", () => {
