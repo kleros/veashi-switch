@@ -251,9 +251,10 @@ export function fakeSetup(): AppSetup {
 
   const data: SwitchData = {
     chains: () => ({
-      foreign: { key: "foreign", network: "devnet", id: foreign.id, name: foreign.name, rpcUrl: env.foreign.rpcUrl, explorerTxUrl: null, scannerTxUrl: null },
-      home: { key: "home", network: "devnet", id: home.id, name: home.name, rpcUrl: env.home.rpcUrl, explorerTxUrl: null, scannerTxUrl: null },
+      foreign: { key: "foreign", network: "devnet", id: foreign.id, name: foreign.name, rpcUrl: env.foreign.rpcUrl, explorerTxUrl: null, scannerTxUrl: null, nativeCurrency: { symbol: "ETH", decimals: 18 } },
+      home: { key: "home", network: "devnet", id: home.id, name: home.name, rpcUrl: env.home.rpcUrl, explorerTxUrl: null, scannerTxUrl: null, nativeCurrency: { symbol: "ETH", decimals: 18 } },
     }),
+    payTokens: () => ["native", "usdc"],
     oracles: async () => ORACLES,
     defaultSelection: async () => DEFAULT,
     validateSelection(sel, oracles): SelectionError | null {
@@ -286,6 +287,7 @@ export function fakeSetup(): AppSetup {
       if (BULB_FAIL || sw().bulbFail) throw new Error("bulb read failed");
       return bulbs.get(o.toLowerCase()) ?? false;
     },
+    balance: async () => eth(1.25),
     usdcAllowance: async () => allowance,
     async approveUsdc(amount) {
       await sleep(700);

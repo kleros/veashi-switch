@@ -35,7 +35,7 @@ import {
   scannerTxUrl,
   type ParsedDevnetEnv,
 } from "./env";
-import { getContractEventsPaged } from "./logs";
+import { getContractEventsPaged, seedLogSpan } from "./logs";
 import { viemChains } from "./networks";
 import { CANCELLED_BEFORE_SENDING, describeError, MINED_REVERT, SwitchError, toSwitchError, withLead, type ErrorContext } from "./errors";
 import { buildRequest, isFinal, projectTo, stageSteps, type LegFacts, type RequestFacts } from "./lifecycle";
@@ -225,6 +225,9 @@ export function createChainSwitchData(env: ParsedDevnetEnv, config: Config): Swi
   const pollingInterval = POLL_MS[env.kind];
   const foreign = createPublicClient({ chain: chains.foreign, transport: http(env.foreign.rpcUrl), pollingInterval }) as PublicClient;
   const home = createPublicClient({ chain: chains.home, transport: http(env.home.rpcUrl), pollingInterval }) as PublicClient;
+  // An RPC whose getLogs range is known (Arc testnet's: 10,000 blocks) is read in chunks of it from the first scan.
+  if (env.foreign.logRange) seedLogSpan(foreign, env.foreign.logRange);
+  if (env.home.logRange) seedLogSpan(home, env.home.logRange);
   const watchInterval = env.kind === "devnet" ? WATCH_INTERVAL_MS : TESTNET_WATCH_INTERVAL_MS;
   const fa = env.addresses.foreign;
   const ha = env.addresses.home;
@@ -233,7 +236,16 @@ export function createChainSwitchData(env: ParsedDevnetEnv, config: Config): Swi
   const lightbulb = activeLightbulb(fa)!;
   const lightbulbs = knownLightbulbs(fa);
   const gateway = fa.ForeignGateway;
-  const usdc = fa.USDC;
+  // Optional: a route without a USDC token contract is paid in the foreign chain's gas token only (on Arc testnet that
+  // already is USDC).
+  const usdc: Address | undefined = fa.USDC;
+  const native = env.foreign.nativeCurrency;
+  const jurorGuideKeys = env.jurorGuide;
+  const noUsdc = () =>
+    new SwitchError(
+      `${CANCELLED_BEFORE_SENDING} This network takes no USDC token: pay in ${env.foreign.name}'s own gas token (${native.symbol}).`,
+    );
+  const isUsdc = (token: Address) => !!usdc && sameAddress(token, usdc);
 
   const info = (key: "foreign" | "home"): ChainInfo => ({
     key,
@@ -243,6 +255,7 @@ export function createChainSwitchData(env: ParsedDevnetEnv, config: Config): Swi
     rpcUrl: env[key].rpcUrl,
     explorerTxUrl: env[key].explorerUrl ? (hash: Hex) => explorerTxUrl(env[key], hash)! : null,
     scannerTxUrl: env.scannerUrl ? (hash: Hex) => scannerTxUrl(env.scannerUrl, env[key].chainId, hash)! : null,
+    nativeCurrency: { symbol: env[key].nativeCurrency.symbol, decimals: env[key].nativeCurrency.decimals },
   });
   const clients = { foreign, home };
 
@@ -304,16 +317,19 @@ export function createChainSwitchData(env: ParsedDevnetEnv, config: Config): Swi
     );
   }
 
-  const errorContext = async (): Promise<ErrorContext> => {
+  // `on` is the chain the failed call ran on: its gas token names the amounts of a reporter that cannot pay.
+  const errorContext = async (on: "foreign" | "home" = "foreign"): Promise<ErrorContext> => {
     const oracles = await wiring().catch(() => [] as OracleWiring[]);
     return {
       homeChainName: env.home.name,
       network: env.kind ?? "devnet",
       oracleName: (id) => oracles.find((w) => w.oracle.id === id)?.oracle.name ?? `Oracle #${id}`,
+      nativeSymbol: env[on].nativeCurrency.symbol,
+      homeNativeSymbol: env.home.nativeCurrency.symbol,
     };
   };
-  const fail = async (error: unknown, beforeSending = false): Promise<never> => {
-    throw toFailure(error, beforeSending, await errorContext());
+  const fail = async (error: unknown, beforeSending = false, on: "foreign" | "home" = "foreign"): Promise<never> => {
+    throw toFailure(error, beforeSending, await errorContext(on));
   };
 
   let extraDataCache: Promise<Hex> | null = null;
@@ -330,6 +346,7 @@ export function createChainSwitchData(env: ParsedDevnetEnv, config: Config): Swi
   }
 
   async function quote(selection: OracleSelection | null, token: PayToken): Promise<CostQuote> {
+    if (token === "usdc" && !usdc) throw noUsdc();
     const sel = selection ? normalizeSelection(selection) : null;
     const data = await extraData();
     const oracleIds = sel ? sel.oracleIds : (await defaultSelection()).oracleIds;
@@ -339,7 +356,7 @@ export function createChainSwitchData(env: ParsedDevnetEnv, config: Config): Swi
 
     let total: bigint;
     if (token === "native") total = sel ? await read("arbitrationCost", [data, ids]) : await read("arbitrationCost", [data]);
-    else total = sel ? await read("arbitrationCost", [data, ids, usdc]) : await read("arbitrationCost", [data, usdc]);
+    else total = sel ? await read("arbitrationCost", [data, ids, usdc!]) : await read("arbitrationCost", [data, usdc!]);
 
     let { courtId, jurors } = decodeCourtAndJurors(data);
     let feeForJuror = await read<bigint>("feeForJuror", [courtId]);
@@ -351,10 +368,10 @@ export function createChainSwitchData(env: ParsedDevnetEnv, config: Config): Swi
     const bridgingCosts: Record<number, bigint> = {};
     for (const id of oracleIds) bridgingCosts[id] = await read<bigint>("oracleBridgingCost", [BigInt(id)]);
 
-    let decimals = 18;
-    let symbol = "ETH";
+    let decimals = native.decimals;
+    let symbol = native.symbol;
     let toToken = (amount: bigint) => amount;
-    if (token === "usdc") {
+    if (token === "usdc" && usdc) {
       const [rateAccepted, rateInEth, rateDecimals] = await read<[boolean, bigint, number]>("currencyRates", [usdc]);
       void rateAccepted;
       decimals = await foreign.readContract({ address: usdc, abi: erc20Abi, functionName: "decimals" });
@@ -435,7 +452,7 @@ export function createChainSwitchData(env: ParsedDevnetEnv, config: Config): Swi
         });
         executable = true;
       } catch (error) {
-        const text = describeError(error, await errorContext());
+        const text = describeError(error, await errorContext(to));
         // A race with a keeper executing it right now is not a failure.
         if (text !== describeError({ data: { errorName: "MessageIdAlreadyExecuted", args: [] } })) failure = text;
       }
@@ -468,7 +485,7 @@ export function createChainSwitchData(env: ParsedDevnetEnv, config: Config): Swi
     const facts: RequestFacts = {
       disputeId,
       lightbulb: requestLightbulb,
-      jurorGuide: isJurorGuidedLightbulb(fa, requestLightbulb),
+      jurorGuide: isJurorGuidedLightbulb(fa, requestLightbulb, jurorGuideKeys),
       owner,
       selection: { oracleIds: [], threshold: 0 },
       paid: { token: "native", amount: 0n },
@@ -514,7 +531,7 @@ export function createChainSwitchData(env: ParsedDevnetEnv, config: Config): Swi
       args: [disputeHash],
     });
     const [, , , , feeToken, feesForJurors, feesForBridging] = data;
-    const token: PayToken = sameAddress(feeToken, usdc) ? "usdc" : "native";
+    const token: PayToken = isUsdc(feeToken) ? "usdc" : "native";
     facts.paid = { token, amount: feesForJurors + feesForBridging };
     const wire = (id: number) => oracles.find((w) => w.oracle.id === id);
     const adapters = (side: "disputeAdapter" | "rulingAdapter") =>
@@ -602,7 +619,7 @@ export function createChainSwitchData(env: ParsedDevnetEnv, config: Config): Swi
             account: DEV_ACCOUNT,
           });
         } catch (error) {
-          facts.creationBlocker = describeError(error, await errorContext());
+          facts.creationBlocker = describeError(error, await errorContext("home"));
         }
       }
       return { facts, handles };
@@ -642,7 +659,7 @@ export function createChainSwitchData(env: ParsedDevnetEnv, config: Config): Swi
     const owed = refundLogs[0]?.args;
     const claimed = claimedLogs[0];
     facts.refund = {
-      token: owed?._feeToken && sameAddress(owed._feeToken, usdc) ? "usdc" : token,
+      token: owed?._feeToken && isUsdc(owed._feeToken) ? "usdc" : token,
       amount: (owed?._amount as bigint | undefined) ?? feesForJurors,
       claimed: claimed ? { tx: claimed.transactionHash, beneficiary: claimed.args._beneficiary as Address } : null,
     };
@@ -739,6 +756,7 @@ export function createChainSwitchData(env: ParsedDevnetEnv, config: Config): Swi
 
   async function act(disputeId: bigint, action: RequestAction): Promise<Hex> {
     let sent = false;
+    let on: "foreign" | "home" = "foreign";
     try {
       const read = await readRequest(disputeId);
       if (!read) throw new SwitchError(`${CANCELLED_BEFORE_SENDING} Request #${disputeId} does not exist.`);
@@ -747,6 +765,7 @@ export function createChainSwitchData(env: ParsedDevnetEnv, config: Config): Swi
         throw new SwitchError(`${CANCELLED_BEFORE_SENDING} This step is no longer due: refresh the status.`);
       }
       const { chain, ...call } = actionCall(action, disputeId, read.handles, await yarus());
+      on = chain;
       const account = await connectedAccount(chain);
       await clients[chain].simulateContract({ ...call, abi: [...call.abi, ...allErrorsAbi], account } as never);
       const hash = await writeContract(config, { ...call, chainId: env[chain].chainId } as never);
@@ -755,7 +774,7 @@ export function createChainSwitchData(env: ParsedDevnetEnv, config: Config): Swi
       if (receipt.status !== "success") throw new SwitchError(`${MINED_REVERT}\nThe transaction ${hash} reverted.`);
       return hash;
     } catch (error) {
-      return fail(error, !sent);
+      return fail(error, !sent, on);
     }
   }
 
@@ -770,12 +789,14 @@ export function createChainSwitchData(env: ParsedDevnetEnv, config: Config): Swi
   }
 
   async function usdcAllowance(owner: Address): Promise<bigint> {
+    if (!usdc) throw noUsdc();
     return foreign.readContract({ address: usdc, abi: erc20Abi, functionName: "allowance", args: [owner, lightbulb] });
   }
 
   async function approveUsdc(amount: bigint): Promise<Hex> {
     let sent = false;
     try {
+      if (!usdc) throw noUsdc();
       const account = await connectedAccount();
       await foreign.simulateContract({
         address: usdc,
@@ -805,6 +826,7 @@ export function createChainSwitchData(env: ParsedDevnetEnv, config: Config): Swi
   async function requestSwitch(selection: OracleSelection | null, token: PayToken): Promise<SwitchRequest> {
     let sent = false;
     try {
+      if (token === "usdc" && !usdc) throw noUsdc();
       const sel = selection ? normalizeSelection(selection) : null;
       if (sel) {
         const invalid = validateSelection(sel, (await wiring()).map((w) => w.oracle));
@@ -824,7 +846,7 @@ export function createChainSwitchData(env: ParsedDevnetEnv, config: Config): Swi
       const { total } = await quote(sel, token);
       if (token === "usdc" && (await usdcAllowance(account)) < total) await approveUsdc(total);
 
-      const call = requestCall(sel, token, total, usdc);
+      const call = requestCall(sel, token, total, usdc ?? zeroAddress);
       const abi = [...lightbulbAbi, ...allErrorsAbi];
       await foreign.simulateContract({ address: lightbulb, abi, ...call, account } as never);
       const hash = await writeContract(config, {
@@ -922,12 +944,14 @@ export function createChainSwitchData(env: ParsedDevnetEnv, config: Config): Swi
 
   return {
     chains: () => ({ foreign: info("foreign"), home: info("home") }),
+    payTokens: () => (usdc ? ["native", "usdc"] : ["native"]),
     oracles: async () => (await wiring().catch(fail)).map((w) => w.oracle),
     defaultSelection: () => defaultSelection().catch(fail),
     validateSelection,
     quote: (selection, token) => quote(selection, token).catch(fail),
     bulbIsOn: (owner, on = lightbulb) =>
       foreign.readContract({ address: on, abi: lightbulbAbi, functionName: "lightbulbIsOn", args: [owner] }).catch(fail),
+    balance: (owner) => foreign.getBalance({ address: owner }).catch(fail),
     usdcAllowance: (owner) => usdcAllowance(owner).catch(fail),
     approveUsdc,
     requestSwitch,

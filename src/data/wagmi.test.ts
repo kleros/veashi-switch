@@ -40,6 +40,7 @@ describe("createSwitchData", () => {
       rpcUrl: "http://127.0.0.1:8645",
       explorerTxUrl: null,
       scannerTxUrl: null,
+      nativeCurrency: { symbol: "ETH", decimals: 18 },
     });
     expect(data.chains().home.key).toBe("home");
     expect(typeof data.devnet?.rule).toBe("function");
