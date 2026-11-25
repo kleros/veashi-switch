@@ -117,6 +117,10 @@ test("a court case that is not a lightbulb request, or not a number, says so and
   await page.goto("/case");
   await expect(page.getByTestId("case-title")).toHaveText("Find a court case");
   await expect(page.getByTestId("find-kind-case")).toBeChecked();
+  // the court template's frontendUrl can arrive without its number: /case/ asks for it too
+  await page.goto("/case/");
+  await expect(page.getByTestId("case-title")).toHaveText("Find a court case");
+  await expect(page.getByTestId("find-kind-case")).toBeChecked();
 
   // a long number wraps in the title on a phone: no sideways scroll
   await page.setViewportSize({ width: 375, height: 800 });
