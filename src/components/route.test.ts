@@ -12,6 +12,7 @@ const info = (key: "foreign" | "home", id: number, name: string): ChainInfo => (
   rpcUrl: "http://127.0.0.1:8645",
   explorerTxUrl: null,
   scannerTxUrl: null,
+  nativeCurrency: { symbol: "ETH", decimals: 18 },
 });
 const route = routeConfig({ foreign: info("foreign", 31337001, "Base-like"), home: info("home", 31337002, "Arbitrum-like") });
 

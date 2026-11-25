@@ -5,7 +5,7 @@ The Request and Track pages of the GatewayLightbulb "switch" over the Kleros Vea
 The wallet connects for real and the app makes real contract calls, against one of two networks chosen at build time:
 
 - **the local two-chain anvil devnet** (the default) that this repository's scripts start and deploy. It uses chain ids no public network uses, and this build refuses any RPC URL whose host is not `127.0.0.1` or `localhost`;
-- **the public testnets** Base Sepolia and Arbitrum Sepolia (`VITE_VEASHI_NETWORK=testnet`, the Netlify build; see [Deploying to Netlify](#deploying-to-netlify-testnets)). This build accepts only those testnet chain ids, over https, and never a mainnet.
+- **the public testnets** (`VITE_VEASHI_NETWORK=testnet`, the Netlify build; see [Deploying to Netlify](#deploying-to-netlify-testnets)): requests from Base Sepolia or Arc testnet, with the court on Arbitrum Sepolia (see [Routes](#routes-base-sepolia-and-arc-testnet)). This build accepts only known testnet chain ids, over https, and never a mainnet.
 
 Stack: Vite, React 18, TypeScript, styled-components, `@kleros/ui-components-library`, wagmi/viem, react-query. Unit tests use vitest; the end-to-end suite uses Playwright.
 
@@ -90,11 +90,40 @@ A changed contract ABI also needs `src/data/abi.ts` updated. If `feat/veashi-gat
 
 The same app builds as a static site that talks to public testnets: Base Sepolia (foreign chain) and Arbitrum Sepolia (home chain). The build is selected by `VITE_VEASHI_NETWORK=testnet`, which `netlify.toml` sets; without it the app loads `/devnet.json` as before. There is no fake mode and no test wallet in a testnet build: only the injected (browser) wallet.
 
-Settings live in `config/testnet.json`, bundled at build time: for each chain the id (only Base Sepolia, Arbitrum Sepolia and Sepolia are accepted), RPC URL (https), block explorer URL, `fromBlock` (the deployment block, where event scans start), and the contract addresses. `Yaho` and `Yaru` are filled in from `@kleros/veashi-sdk`. `ForeignGateway`, `GatewayLightbulb`, `USDC`, `HomeGateway` and `KlerosCoreRuler` are empty until the contracts are deployed; the site still loads with them empty and renders every page, but nothing can be read, requested or tracked: each read fails at once, before any RPC call, with an inline error naming the unset contracts. To go live, set those addresses and the `fromBlock` values, commit, and let Netlify rebuild. The deployed gateways must be the ones of the pinned kleros-v2 commit (two-step creation): the app reads `getReceivedDispute`, `creationTimeout` and the creation-failure events, and older gateways do not have them. The oracles' reporters and adapters are read from the ForeignGateway, so they need no entry here.
+Settings live in `config/testnet.json`, bundled at build time, as a list of [routes](#routes-base-sepolia-and-arc-testnet): for each chain of a route the id (only Base Sepolia, Arbitrum Sepolia, Sepolia and Arc testnet are accepted), RPC URL (https), block explorer URL, `fromBlock` (the deployment block, where event scans start), and the contract addresses. `Yaho` and `Yaru` are filled in from `@kleros/veashi-sdk`. `ForeignGateway`, `GatewayLightbulb`, `USDC`, `HomeGateway` and `KlerosCoreRuler` are empty until the contracts are deployed; the site still loads with them empty and renders every page, but nothing can be read, requested or tracked: each read fails at once, before any RPC call, with an inline error naming the unset contracts. To go live, set those addresses and the `fromBlock` values, commit, and let Netlify rebuild. The deployed gateways must be the ones of the pinned kleros-v2 commit (two-step creation): the app reads `getReceivedDispute`, `creationTimeout` and the creation-failure events, and older gateways do not have them. The oracles' reporters and adapters are read from the ForeignGateway, so they need no entry here.
+
+### Routes (Base Sepolia and Arc testnet)
+
+`config/testnet.json` lists `routes`, each a foreign chain with its own gateways and the home chain its court is on. The first route is the default.
+
+| Route | `id` | From | Court on | Pay in | Oracles |
+| --- | --- | --- | --- | --- | --- |
+| default | `base` | Base Sepolia | Arbitrum Sepolia, through HomeGateway 1 | ETH or USDC | the ForeignGateway's (Vea, CCIP, LayerZero, deBridge) |
+| | `arc` | Arc testnet (5042002) | Arbitrum Sepolia, through HomeGateway 2 | USDC, Arc's gas token (18 decimals) | Axelar |
+
+A route is `{ id, foreign: { chainId, name, rpcUrl, explorerUrl, fromBlock, addresses }, home: { ..., addresses } }`, with these optional keys:
+
+- `nativeCurrency` on a chain: its gas token. Known testnets have theirs built in (Arc testnet: USDC with 18 decimals; its ERC-20 view at `0x3600…` uses 6 and is not what the app pays with), and a config may restate it but not change it. Fees, amounts and errors are worded in it.
+- `logRange` on a chain: the widest `eth_getLogs` range its RPC allows, so scans start with chunks of it instead of learning it from refusals (Arc's public RPC: 10,000 blocks). It is dropped when the RPC is overridden.
+- `addresses.USDC` on the foreign chain: without it the route pays in its gas token only (Arc).
+- `scannerUrl` on a route: replaces the top-level one; blank means no scanner links (the scanner does not know the Arc pair).
+- `jurorGuide`: the lightbulb keys whose requests get Track's juror line (default `["GatewayLightbulbV2"]`; Arc's `GatewayLightbulb` is registered with template 199).
+- `manualRelay`: `true` when no relay service runs the route's delivery steps, so Track promises none (Arc).
+
+Each route has its own clients and data: a contract is always read on its own chain. The same address can be a different contract on each chain (`0x9b2F…Cff37` is the Base `GatewayLightbulb`, HomeGateway 1 on Arbitrum Sepolia and the Arc ForeignGateway), and no address is ever looked up on another route's chain. A chain two routes share (Arbitrum Sepolia) must have the same RPC, name, explorer and gas token in both.
+
+URLs: request IDs are per route (each ForeignGateway counts from 1), so the URL names the route, except on the default one, whose links keep working as they were:
+
+- `/track/<id>`: a request of the default route (`/track/1`, `/track/2`); `/track/base/<id>` redirects there.
+- `/track/<route>/<id>`: a request of another route, e.g. `/track/arc/1`.
+- `/case/<number>`: a Kleros court case. Every route's HomeGateway is asked (`disputeIDtoHash`); the routes share one court, so one of them opened it, and the page opens that route's request. The court template's link `/case/{{arbitratorDisputeID}}` lands on the right request whichever route it came from.
+- `/?route=arc`: opens the Request page on that route.
+
+The Request page picks the route first (step 1); the oracles, fee, token and wallet network follow it, and the pick is remembered on the device. Track's list and Find cover every route; Find asks for the network of a request ID.
 
 ### A second lightbulb (`GatewayLightbulbV2`)
 
-`addresses.foreign.GatewayLightbulbV2` is optional and ships blank, which leaves it off. A lightbulb's dispute template is fixed when it is deployed, so a new template needs a new `GatewayLightbulb`; this key lets the site move to it without breaking the first one's links.
+`routes[0].foreign.addresses.GatewayLightbulbV2` (the Base route) is optional and ships blank, which leaves it off. A lightbulb's dispute template is fixed when it is deployed, so a new template needs a new `GatewayLightbulb`; this key lets the site move to it without breaking the first one's links.
 
 - **Blank:** everything uses `GatewayLightbulb`, as before.
 - **Set:** new requests, the fee quote, the USDC approval and the Request page's bulb use `GatewayLightbulbV2`. `GatewayLightbulb` stays readable: Track, Find, the request list and `/case/<number>` look a request up on both, so `/track/<id>` and `/case/<number>` keep working for the first lightbulb's requests and cases.
@@ -115,7 +144,7 @@ The HomeGateway's `CrossChainDisputeIncoming`, which gives the transaction that 
 
 `scannerUrl` (optional, https) is the base URL of [Veashi Scanner](https://github.com/kleros/vea/tree/dev/veashi-scanner) (`kleros/vea`), the Hashi cross-chain message explorer. When it is set, Track links each leg's message there, by the transaction that dispatched it: the request on the foreign chain, and the ruling or the creation failure on the home chain (`<scannerUrl>/tx/<chainId>/<txHash>`). Without it, or on the devnet, there are no scanner links.
 
-Optional build variables: `VITE_VEASHI_FOREIGN_RPC` and `VITE_VEASHI_HOME_RPC` replace the RPC URLs (still https only), for example with a provider key's URL; note that anything in a `VITE_` variable ends up in the public bundle.
+Optional build variables: `VITE_VEASHI_RPC_<chainId>` replaces one chain's RPC URL in every route that uses it; `VITE_VEASHI_FOREIGN_RPC` the default route's foreign chain and `VITE_VEASHI_HOME_RPC` its home chain (still https only), for example with a provider key's URL; note that anything in a `VITE_` variable ends up in the public bundle.
 
 RPCs and `eth_getLogs`: Track reads events, and public RPCs cap the block range of one `eth_getLogs` call. Measured on 2026-11-11: Base Sepolia's own `https://sepolia.base.org` allows only 200 blocks (a week of Base Sepolia is about 300,000 blocks), publicnode 50,000, and drpc's free plan 10,000. Arbitrum Sepolia's own RPC answered 2,000,000 blocks in one call. The config therefore uses `https://base-sepolia-rpc.publicnode.com` for Base Sepolia. The reader splits a refused range in chunks of the limit the error names, caches the logs per query so a poll only reads the blocks since the last one, and starts a request's foreign-chain reads at the request's own block. With publicnode, a request 300,000 blocks after `fromBlock` takes about 9 calls per query on first load and 2 per poll.
 

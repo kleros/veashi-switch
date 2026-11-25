@@ -78,7 +78,12 @@ export function helpStages(network: CopyNetwork): { lead: string; rest: string }
 export function helpTerms(network: CopyNetwork): { term: string; text: string }[] {
   const testnet = network === "testnet";
   return [
-    { term: "Oracle", text: "A bridge (Vea, CCIP, LayerZero, deBridge) that reports a message from one chain on the other." },
+    {
+      term: "Oracle",
+      text: testnet
+        ? "A bridge that reports a message from one chain on the other: Vea, CCIP, LayerZero or deBridge from Base Sepolia, Axelar from Arc Testnet."
+        : "A bridge (Vea, CCIP, LayerZero, deBridge) that reports a message from one chain on the other.",
+    },
     { term: "Agreement needed", text: AGREEMENT_HINT },
     testnet
       ? {
@@ -100,7 +105,9 @@ export function helpTerms(network: CopyNetwork): { term: string; text: string }[
     },
     {
       term: "Request fee",
-      text: `Juror fees plus each oracle's round trip. Network gas is extra and paid in ${testnet ? "testnet" : "local"} ETH.`,
+      text: testnet
+        ? "Juror fees plus each oracle's round trip, in the gas token of the network you send from: testnet ETH on Base Sepolia, USDC on Arc Testnet. Network gas is extra and paid in that token too."
+        : "Juror fees plus each oracle's round trip. Network gas is extra and paid in local ETH.",
     },
     {
       term: "tx 0x…",

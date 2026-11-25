@@ -1,7 +1,7 @@
 // Development only (`vite --mode fake`): an in-memory SwitchData that walks the request lifecycle on timers, so the
 // pages can be built and their states checked without the devnet. main.tsx imports it only when
 // import.meta.env.DEV, so it never reaches a build; it is not the app's data source.
-import { createConfig, http } from "wagmi";
+import { createConfig, http, type Config } from "wagmi";
 import { injected, mock } from "wagmi/connectors";
 import type { Chain } from "viem";
 import type {
@@ -9,6 +9,7 @@ import type {
   CostQuote,
   DevnetEnv,
   Hex,
+  NetworkEnv,
   Oracle,
   OracleSelection,
   PayToken,
@@ -38,6 +39,9 @@ const REFUSED_ID = 90n;
 type Switches = { outage?: boolean; quoteFail?: boolean; bulbFail?: boolean };
 const sw = (): Switches => ((window as unknown as { __veashi?: Switches }).__veashi ?? {});
 const FAIL = QS.get("fail"); // "cancel" | "revert" | "unknown": requestSwitch fails before sending / after a mined revert
+// ?routes=2: a second route beside the first, from an Arc-like chain whose gas token is USDC (18 decimals) and which
+// takes no USDC token, with its court on the same Arbitrum-like chain (case numbers are shared, as on one court)
+const TWO_ROUTES = QS.get("routes") === "2";
 
 const foreign: Chain = {
   id: 31_337_001,
@@ -50,6 +54,12 @@ const home: Chain = {
   name: "Arbitrum-like",
   nativeCurrency: { name: "Ether", symbol: "ETH", decimals: 18 },
   rpcUrls: { default: { http: ["http://127.0.0.1:2"] } },
+};
+const arcLike: Chain = {
+  id: 31_337_003,
+  name: "Arc-like",
+  nativeCurrency: { name: "USDC", symbol: "USDC", decimals: 18 },
+  rpcUrls: { default: { http: ["http://127.0.0.1:3"] } },
 };
 
 const eth = (x: number) => BigInt(Math.round(x * 1e6)) * 10n ** 12n;
@@ -73,26 +83,97 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const PAUSE_TEXT = describeRevert({ errorName: "ThresholdBelowMinimum", args: [3n] })!;
 const BLOCKER_TEXT = describeRevert({ errorName: "InsufficientFunds", args: [eth(0.1), 0n] }, { homeChainName: "Arbitrum-like" })!;
 
+/**
+ * One fake route: its foreign chain, whether it takes the USDC token, its oracles (bridging costs in the chain's gas
+ * token), its juror fees in that token, and the rulings of the finished requests it starts with.
+ */
+interface FakeRouteSpec {
+  id: string;
+  foreign: Chain;
+  usdc: boolean;
+  seed: readonly (1 | 2)[];
+  lightbulb: Address;
+  oracles: Oracle[];
+  defaultSelection: OracleSelection;
+  jurorFees: bigint;
+}
+
+// The Arc-like route: one oracle (Axelar, 0.52 USDC a round trip), juror fees of 0.0027 ETH at 2450 USDC per ETH.
+const ARC_ORACLES: Oracle[] = [
+  { id: 0, name: "Axelar", via: "AxelarReporter · AxelarAdapter", enabled: true, bridgingCostWei: 520_000_000_000_000_000n },
+];
+
+const BASE_LIKE: FakeRouteSpec = {
+  id: "default",
+  foreign,
+  usdc: true,
+  seed: [1, 2],
+  lightbulb: LIGHTBULB,
+  oracles: ORACLES,
+  defaultSelection: DEFAULT,
+  jurorFees: JUROR_FEES,
+};
+
 export function fakeSetup(): AppSetup {
+  const specs: FakeRouteSpec[] = TWO_ROUTES
+    ? [
+        { ...BASE_LIKE, id: "base" },
+        {
+          id: "arc",
+          foreign: arcLike,
+          usdc: false,
+          seed: [1],
+          lightbulb: "0x00000000000000000000000000000000000000c1",
+          oracles: ARC_ORACLES,
+          defaultSelection: { oracleIds: [0], threshold: 1 },
+          jurorFees: JUROR_FEES * USDC_PER_ETH,
+        },
+      ]
+    : [BASE_LIKE];
+  const chains = [foreign, home, ...(TWO_ROUTES ? [arcLike] : [])] as [Chain, ...Chain[]];
+  const config = createConfig({
+    chains,
+    connectors: [injected(), mock({ accounts: [DEV], features: { reconnect: true } })],
+    transports: Object.fromEntries(chains.map((c) => [c.id, http(c.rpcUrls.default.http[0])])),
+  });
+  const shared = { nextHome: 0n }; // one court: case numbers are counted across routes
+  const routes = specs.map((spec, i) => {
+    const { env, data } = fakeRoute(spec, config, shared);
+    return { id: spec.id, isDefault: i === 0, env, data, missing: [] };
+  });
+  const network: NetworkEnv = { kind: "devnet", routes: routes.map((r) => r.env), testWallet: true, scannerUrl: null };
+  return { network, config, routes };
+}
+
+function fakeRoute(spec: FakeRouteSpec, config: Config, shared: { nextHome: bigint }): { env: DevnetEnv; data: SwitchData } {
+  const foreign = spec.foreign;
+  const native = foreign.nativeCurrency;
+  // this route's lightbulb, oracles and fees (amounts in its gas token)
+  const LIGHTBULB = spec.lightbulb;
+  const ORACLES = spec.oracles;
+  const DEFAULT = spec.defaultSelection;
+  const JUROR_FEES = spec.jurorFees;
   const env: DevnetEnv = {
     kind: "devnet",
-    foreign: { chainId: foreign.id, rpcUrl: "http://127.0.0.1:1", name: foreign.name, explorerUrl: null, fromBlock: 0n },
+    id: spec.id,
+    foreign: {
+      chainId: foreign.id,
+      rpcUrl: foreign.rpcUrls.default.http[0],
+      name: foreign.name,
+      explorerUrl: null,
+      fromBlock: 0n,
+      nativeCurrency: native,
+    },
     home: { chainId: home.id, rpcUrl: "http://127.0.0.1:2", name: home.name, explorerUrl: null, fromBlock: 0n },
     addresses: { foreign: {}, home: {} },
     testWallet: true,
     scannerUrl: null,
   };
-  const config = createConfig({
-    chains: [foreign, home],
-    connectors: [injected(), mock({ accounts: [DEV], features: { reconnect: true } })],
-    transports: { [foreign.id]: http(env.foreign.rpcUrl), [home.id]: http(env.home.rpcUrl) },
-  });
   const requests = new Map<bigint, SwitchRequest>();
   const watchers = new Map<bigint, Set<(r: SwitchRequest) => void>>();
   const bulbs = new Map<string, boolean>();
   let allowance = 0n;
   let nextId = 1n;
-  let nextHome = 0n;
 
   const owner = (): Address => {
     const a = config.state.connections.get(config.state.current ?? "")?.accounts[0];
@@ -125,7 +206,7 @@ export function fakeSetup(): AppSetup {
     tx("switched", "foreign", "executeRuling"),
   ];
   // ?refused=1: a request ruled 0, with IDs outside the ones handed out below (so they do not move); the bulb is untouched.
-  if (REFUSED)
+  if (spec.seed.length > 0 && REFUSED)
     requests.set(REFUSED_ID, {
       disputeId: REFUSED_ID,
       lightbulb: LIGHTBULB,
@@ -146,9 +227,9 @@ export function fakeSetup(): AppSetup {
     });
 
   // Two finished requests owned by the test wallet, one ruled On and one Off, so Track can be seen without a wait.
-  for (const ruling of [1, 2] as const) {
+  for (const ruling of spec.seed) {
     const id = nextId++;
-    const hid = nextHome++;
+    const hid = shared.nextHome++;
     requests.set(id, {
       disputeId: id,
       lightbulb: LIGHTBULB,
@@ -217,7 +298,7 @@ export function fakeSetup(): AppSetup {
       update(id, (x) => (x.stage === "dispute-delivered" ? { ...x, actions: ["send-failure"] } : x));
       return;
     }
-    const hid = nextHome++;
+    const hid = shared.nextHome++;
     update(id, (x) => ({
       ...x,
       stage: "dispute-received",
@@ -251,9 +332,10 @@ export function fakeSetup(): AppSetup {
 
   const data: SwitchData = {
     chains: () => ({
-      foreign: { key: "foreign", network: "devnet", id: foreign.id, name: foreign.name, rpcUrl: env.foreign.rpcUrl, explorerTxUrl: null, scannerTxUrl: null },
-      home: { key: "home", network: "devnet", id: home.id, name: home.name, rpcUrl: env.home.rpcUrl, explorerTxUrl: null, scannerTxUrl: null },
+      foreign: { key: "foreign", network: "devnet", id: foreign.id, name: foreign.name, rpcUrl: env.foreign.rpcUrl, explorerTxUrl: null, scannerTxUrl: null, nativeCurrency: { symbol: native.symbol, decimals: native.decimals } },
+      home: { key: "home", network: "devnet", id: home.id, name: home.name, rpcUrl: env.home.rpcUrl, explorerTxUrl: null, scannerTxUrl: null, nativeCurrency: { symbol: "ETH", decimals: 18 } },
     }),
+    payTokens: () => (spec.usdc ? ["native", "usdc"] : ["native"]),
     oracles: async () => ORACLES,
     defaultSelection: async () => DEFAULT,
     validateSelection(sel, oracles): SelectionError | null {
@@ -267,6 +349,7 @@ export function fakeSetup(): AppSetup {
     async quote(sel, token: PayToken): Promise<CostQuote> {
       await sleep(QUOTE_MS);
       if (sw().quoteFail) throw new Error("The local network does not answer.");
+      if (token === "usdc" && !spec.usdc) throw new Error(`This network takes no USDC token: pay in ${foreign.name}'s own gas token (${native.symbol}).`);
       const ids = (sel ?? DEFAULT).oracleIds;
       const conv = (wei: bigint) => (token === "usdc" ? (wei * USDC_PER_ETH) / 10n ** 12n : wei);
       const bridging = ids.map((id) => ({ oracleId: id, amount: conv(ORACLES[id].bridgingCostWei) }));
@@ -277,8 +360,8 @@ export function fakeSetup(): AppSetup {
         jurorFees,
         bridging,
         total: bridging.reduce((s, b) => s + b.amount, jurorFees),
-        decimals: token === "usdc" ? 6 : 18,
-        symbol: token === "usdc" ? "USDC" : "ETH",
+        decimals: token === "usdc" ? 6 : native.decimals,
+        symbol: token === "usdc" ? "USDC" : native.symbol,
       };
     },
     bulbIsOn: async (o) => {
@@ -286,6 +369,7 @@ export function fakeSetup(): AppSetup {
       if (BULB_FAIL || sw().bulbFail) throw new Error("bulb read failed");
       return bulbs.get(o.toLowerCase()) ?? false;
     },
+    balance: async () => (native.symbol === "USDC" ? eth(25) : eth(1.25)),
     usdcAllowance: async () => allowance,
     async approveUsdc(amount) {
       await sleep(700);
@@ -386,5 +470,5 @@ export function fakeSetup(): AppSetup {
           },
         },
   };
-  return { env, config, data };
+  return { env, data };
 }

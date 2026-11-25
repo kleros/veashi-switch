@@ -23,8 +23,10 @@ export interface Wallet extends WalletState {
 }
 
 function useWalletState(): Wallet {
-  const { env, data } = useSetup();
+  const { env, data, neutral } = useSetup();
   const route = routeConfig(data.chains());
+  // the chain the wallet sends on: the foreign chain of the route the page is about (the Request page's pick, a tracked
+  // request's route); a page about none of several routes sends nothing, so any network will do there
   const foreignId = route.from.id;
   const account = useAccount();
   const { connectors, connectAsync, isPending } = useConnect();
@@ -36,7 +38,7 @@ function useWalletState(): Wallet {
   const test = env.testWallet ? connectors.find((c) => c.type !== "injected") : undefined;
   const status: WalletState["status"] =
     account.status === "connected"
-      ? account.chainId === foreignId
+      ? neutral || account.chainId === foreignId
         ? "connected"
         : "wrong-chain"
       : account.status === "connecting" || account.status === "reconnecting"
@@ -234,8 +236,9 @@ const Menu = styled.details`
 /** The compact account and network control of the top bar, with a disconnect menu. Visible at every width. */
 export const AccountControl: React.FC = () => {
   const w = useWallet();
-  const { data } = useSetup();
+  const { data, neutral, config } = useSetup();
   const route = routeConfig(data.chains());
+  const on = neutral ? (config.chains.find((c) => c.id === w.chainId)?.name ?? "another network") : route.fromLabel;
   if (!w.address || w.status === "disconnected" || w.status === "connecting")
     return (
       <span data-testid="account-control" className="muted" style={{ fontSize: "var(--fs-sm)" }}>
@@ -251,7 +254,7 @@ export const AccountControl: React.FC = () => {
         <span className={wrong ? "bad" : undefined}>{wrong ? "Wrong network" : route.testnet ? "Testnet" : "Local"}</span>
       </summary>
       <div className="panel">
-        <span>{wrong ? `Switch to ${route.fromLabel} to send.` : `On ${route.fromLabel}`}</span>
+        <span>{wrong ? `Switch to ${route.fromLabel} to send.` : `On ${on}`}</span>
         <Copiable copiableContent={w.address} info="Copy address">
           <Addr title={w.address}>{w.address}</Addr>
         </Copiable>

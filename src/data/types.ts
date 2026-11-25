@@ -14,8 +14,9 @@ export interface ChainInfo {
   rpcUrl: string; // a local anvil URL on the devnet, a public RPC on a testnet
   explorerTxUrl: ((hash: Hex) => string) | null; // null on the devnet: the UI shows the hash, copyable, without a link
   // The cross-chain message a transaction on this chain dispatched, in Veashi Scanner; null without a scanner
-  // (always on the devnet).
+  // (always on the devnet, and on a route the scanner does not know).
   scannerTxUrl: ((hash: Hex) => string) | null;
+  nativeCurrency: { symbol: string; decimals: number }; // the gas token: ETH, or USDC on Arc testnet (18 decimals)
 }
 
 export interface Oracle {
@@ -39,8 +40,8 @@ export interface CostQuote {
   jurorFees: bigint; // in the token's smallest unit
   bridging: { oracleId: number; amount: bigint }[];
   total: bigint; // what GatewayLightbulb pulls or requires (arbitrationCost)
-  decimals: number; // 18 for native, the token's decimals for USDC
-  symbol: string; // "ETH" or "USDC"
+  decimals: number; // the gas token's for native (18), the token's decimals for USDC
+  symbol: string; // the gas token's symbol ("ETH", or "USDC" on Arc testnet), or "USDC" for the USDC token
 }
 
 export type SelectionError =
@@ -170,6 +171,9 @@ export type Unsubscribe = () => void;
 
 export interface SwitchData {
   chains(): { foreign: ChainInfo; home: ChainInfo };
+  // How a request can be paid on this route: "native" (the foreign chain's gas token) always, then "usdc" when the route
+  // has a USDC token contract (Base Sepolia). On Arc testnet the gas token already is USDC: native only.
+  payTokens(): PayToken[];
   oracles(): Promise<Oracle[]>;
   defaultSelection(): Promise<OracleSelection>;
   validateSelection(selection: OracleSelection, oracles: Oracle[]): SelectionError | null;
@@ -177,6 +181,7 @@ export interface SwitchData {
   // GatewayLightbulb.lightbulbIsOn, on the active lightbulb (where new requests go) unless `lightbulb` names another one,
   // e.g. a request's own (`SwitchRequest.lightbulb`)
   bulbIsOn(owner: Address, lightbulb?: Address): Promise<boolean>;
+  balance(owner: Address): Promise<bigint>; // the owner's gas-token balance on the foreign chain, in its smallest unit
   usdcAllowance(owner: Address): Promise<bigint>; // to the active GatewayLightbulb
   approveUsdc(amount: bigint): Promise<Hex>; // waits for the receipt
   requestSwitch(selection: OracleSelection | null, token: PayToken): Promise<SwitchRequest>; // waits for the receipt

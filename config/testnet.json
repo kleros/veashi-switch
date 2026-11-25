@@ -1,34 +1,71 @@
 {
   "kind": "testnet",
   "scannerUrl": "https://veashi-scan.netlify.app",
-  "foreign": {
-    "chainId": 84532,
-    "name": "Base Sepolia",
-    "rpcUrl": "https://base-sepolia-rpc.publicnode.com",
-    "explorerUrl": "https://sepolia.basescan.org",
-    "fromBlock": 62544707
-  },
-  "home": {
-    "chainId": 421614,
-    "name": "Arbitrum Sepolia",
-    "rpcUrl": "https://sepolia-rollup.arbitrum.io/rpc",
-    "explorerUrl": "https://sepolia.arbiscan.io",
-    "fromBlock": 331953930
-  },
-  "addresses": {
-    "foreign": {
-      "ForeignGateway": "0xD2065e625D19eF00AA0b9E4cCb51D79a56b8343a",
-      "GatewayLightbulb": "0x9b2F1d258F7ded62874807c6DD15247b5C6Cff37",
-      "GatewayLightbulbV2": "",
-      "USDC": "0x036CbD53842c5426634e7929541eC2318f3dCF7e",
-      "Yaho": "0xf69BCD5Ff8A64919BE217bC017454aba4f6daa9D",
-      "Yaru": "0xFe9fF402A80EF4aBA0181759ad4ECDAfc815dFbf"
+  "routes": [
+    {
+      "id": "base",
+      "foreign": {
+        "chainId": 84532,
+        "name": "Base Sepolia",
+        "rpcUrl": "https://base-sepolia-rpc.publicnode.com",
+        "explorerUrl": "https://sepolia.basescan.org",
+        "fromBlock": 62544707,
+        "addresses": {
+          "ForeignGateway": "0xD2065e625D19eF00AA0b9E4cCb51D79a56b8343a",
+          "GatewayLightbulb": "0x9b2F1d258F7ded62874807c6DD15247b5C6Cff37",
+          "GatewayLightbulbV2": "",
+          "USDC": "0x036CbD53842c5426634e7929541eC2318f3dCF7e",
+          "Yaho": "0xf69BCD5Ff8A64919BE217bC017454aba4f6daa9D",
+          "Yaru": "0xFe9fF402A80EF4aBA0181759ad4ECDAfc815dFbf"
+        }
+      },
+      "home": {
+        "chainId": 421614,
+        "name": "Arbitrum Sepolia",
+        "rpcUrl": "https://sepolia-rollup.arbitrum.io/rpc",
+        "explorerUrl": "https://sepolia.arbiscan.io",
+        "fromBlock": 331953930,
+        "addresses": {
+          "HomeGateway": "0x9b2F1d258F7ded62874807c6DD15247b5C6Cff37",
+          "KlerosCoreRuler": "0xE8442307d36e9bf6aB27F1A009F95CE8E11C3479",
+          "Yaho": "0xDbdF80c87f414fac8342e04D870764197bD3bAC7",
+          "Yaru": "0xEA3799EA443bf65a7Dc8C1dBfd9e64962f9Af724"
+        }
+      }
     },
-    "home": {
-      "HomeGateway": "0x9b2F1d258F7ded62874807c6DD15247b5C6Cff37",
-      "KlerosCoreRuler": "0xE8442307d36e9bf6aB27F1A009F95CE8E11C3479",
-      "Yaho": "0xDbdF80c87f414fac8342e04D870764197bD3bAC7",
-      "Yaru": "0xEA3799EA443bf65a7Dc8C1dBfd9e64962f9Af724"
+    {
+      "id": "arc",
+      "scannerUrl": "",
+      "jurorGuide": ["GatewayLightbulb"],
+      "manualRelay": true,
+      "foreign": {
+        "chainId": 5042002,
+        "name": "Arc Testnet",
+        "rpcUrl": "https://rpc.testnet.arc.network",
+        "explorerUrl": "https://explorer.testnet.arc.io",
+        "nativeCurrency": { "name": "USDC", "symbol": "USDC", "decimals": 18 },
+        "logRange": 10000,
+        "fromBlock": 74009682,
+        "addresses": {
+          "ForeignGateway": "0x9b2F1d258F7ded62874807c6DD15247b5C6Cff37",
+          "GatewayLightbulb": "0xB431C5907B76811164034fAaB763064364f9d4CD",
+          "Yaho": "0x644Be3a596F082CC36D0bD929ABe855180536ac3",
+          "Yaru": "0xDd8077Bd7DCfE1832Da274a0072ECCa3a96dFC2F"
+        }
+      },
+      "home": {
+        "chainId": 421614,
+        "name": "Arbitrum Sepolia",
+        "rpcUrl": "https://sepolia-rollup.arbitrum.io/rpc",
+        "explorerUrl": "https://sepolia.arbiscan.io",
+        "fromBlock": 332549495,
+        "addresses": {
+          "HomeGateway": "0x4c36FFA35Ce17CbDEeEB3582288828B933faCbA5",
+          "KlerosCoreRuler": "0xE8442307d36e9bf6aB27F1A009F95CE8E11C3479",
+          "Yaho": "0xDbdF80c87f414fac8342e04D870764197bD3bAC7",
+          "Yaru": "0x5DF915ff0685f811b095c445cFE5d603e57b8873"
+        }
+      }
     }
-  }
+  ]
 }

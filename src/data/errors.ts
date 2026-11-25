@@ -12,6 +12,8 @@ export interface ErrorContext {
   homeChainName?: string;
   usdcDecimals?: number;
   network?: "devnet" | "testnet"; // devnet (the default) names the local operator and local ETH
+  nativeSymbol?: string; // the gas token of the chain the failed call ran on ("ETH" when unset; "USDC" on Arc testnet)
+  homeNativeSymbol?: string; // the home chain's gas token, what the court side holds ("ETH" when unset)
 }
 
 /** Finds the custom error behind a viem error (or raw revert data), walking the cause chain. */
@@ -46,14 +48,18 @@ export function decodeRevertData(data: Hex): DecodedRevert | null {
   }
 }
 
-const eth = (wei: unknown) => `${formatEther(BigInt(wei as bigint))} ETH`;
+// Every gas token this app meets has 18 decimals at the EVM level (Arc testnet's USDC too).
+const amountIn = (symbol: string) => (wei: unknown) => `${formatEther(BigInt(wei as bigint))} ${symbol}`;
 
 /** The sentence for one custom error, or null for an error this app has no wording for. */
 export function describeRevert(revert: DecodedRevert, context: ErrorContext = {}): string | null {
   const a = revert.args;
   const home = context.homeChainName ?? "the home chain";
   const local = context.network !== "testnet";
-  const ether = local ? "local ETH" : "ETH";
+  const native = context.nativeSymbol ?? "ETH";
+  const homeNative = context.homeNativeSymbol ?? "ETH";
+  const ether = local ? `local ${native}` : native;
+  const homeEther = local ? `local ${homeNative}` : homeNative;
   const operator = local ? "The local operator" : "Its operator";
   switch (revert.errorName) {
     case "InsufficientPayment":
@@ -73,11 +79,11 @@ export function describeRevert(revert: DecodedRevert, context: ErrorContext = {}
     case "DuplicateOracle":
       return `An oracle is selected twice. Select each oracle once.\nOracle #${Number(a[0])} appears twice in the selection.`;
     case "InsufficientFunds":
-      return `The court side${local ? " of this local devnet" : ""} lacks ${ether} to open the case. ${operator} needs to fund it.\nThe HomeGateway on ${home} needs ${eth(a[0])} and holds ${eth(a[1])}; anyone can open the case once it is funded.`;
+      return `The court side${local ? " of this local devnet" : ""} lacks ${homeEther} to open the case. ${operator} needs to fund it.\nThe HomeGateway on ${home} needs ${amountIn(homeNative)(a[0])} and holds ${amountIn(homeNative)(a[1])}; anyone can open the case once it is funded.`;
     case "ReporterCannotPay":
-      return `This oracle's relay service lacks ${ether} for delivery. ${operator} needs to fund it.\nThe ${String(a[0])} reporter cannot pay its bridge fee (needs ${eth(a[1])}, holds ${eth(a[2])}). Try again later, or choose oracles without ${String(a[0])}.`;
+      return `This oracle's relay service lacks ${ether} for delivery. ${operator} needs to fund it.\nThe ${String(a[0])} reporter cannot pay its bridge fee (needs ${amountIn(native)(a[1])}, holds ${amountIn(native)(a[2])}). Try again later, or choose oracles without ${String(a[0])}.`;
     case "TokenNotAccepted":
-      return "This token is not accepted for fees. Pay in ETH instead.\nThe gateway does not accept this token.";
+      return `This token is not accepted for fees. Pay in ${native} instead.\nThe gateway does not accept this token.`;
     case "ERC20InsufficientAllowance":
       return "The approved USDC amount is too low. Approve the total first, then send.\nThe Lightbulb is not approved to pull enough USDC.";
     case "ERC20InsufficientBalance":

@@ -61,6 +61,16 @@ export function statedSpan(error: unknown): bigint | null {
 // of that size instead of failing first. Never set for an RPC that has refused nothing: it gets whole ranges.
 const learnedSpan = new WeakMap<object, bigint>();
 
+/**
+ * Starts a client's reads in chunks of `span` blocks, the widest range its RPC is known to allow (config `logRange`),
+ * instead of learning it from refusals. A span the client already learned is kept when it is narrower.
+ */
+export function seedLogSpan(client: object, span: bigint): void {
+  if (span <= 0n) return;
+  const known = learnedSpan.get(client);
+  if (known === undefined || known > span) learnedSpan.set(client, span);
+}
+
 // Per client, per query: the logs read from fromBlock up to toBlock. The last REORG_BLOCKS blocks are read again on the
 // next call, so a reorganised tail is replaced; a head below toBlock (a restarted devnet) drops the entry.
 const queryCache = new WeakMap<object, Map<string, { fromBlock: bigint; toBlock: bigint; logs: unknown[] }>>();

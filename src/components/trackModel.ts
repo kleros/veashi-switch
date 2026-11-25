@@ -451,7 +451,11 @@ export function nowModel(
   });
   const decision = decisionOf(req);
   const refund = req.refund && opts.amount ? opts.amount(req.refund.amount) : "The juror fees";
-  const relay = names.testnet ? "Anyone, or an automatic relay service" : "Automatic relay service";
+  const relay = names.manualRelay
+    ? "Anyone can run it from this page"
+    : names.testnet
+      ? "Anyone, or an automatic relay service"
+      : "Automatic relay service";
   switch (req.stage) {
     case "submitted":
       return {

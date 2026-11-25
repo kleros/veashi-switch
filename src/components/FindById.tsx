@@ -2,7 +2,8 @@ import React, { useEffect, useId, useRef, useState } from "react";
 import { Field } from "@kleros/ui-components-library";
 import { useNavigate } from "react-router-dom";
 import styled from "styled-components";
-import { lookupCase, parseCaseNumber } from "./readState";
+import { parseCaseNumber } from "./readState";
+import { lookupCaseAcrossRoutes, routeSource, trackPath } from "./routing";
 import { useSetup } from "./setup";
 import { LibButton } from "./ui";
 
@@ -108,13 +109,18 @@ type CaseState =
  * Look up a request by its number, or by the Kleros court case it opened (what jurors know), with a persistent label
  * and inline validation. A request opens its Track page. A court case is looked up here, so the page (and the dialog
  * that holds the form) stays put until its request is known: then its Track page opens; a case that is no request's,
- * or a failed read, is said under the field. `/case/<number>` does the same lookup for a link.
+ * or a failed read, is said under the field. `/case/<number>` does the same lookup for a link. With several routes, a
+ * request ID is looked up on the network chosen beside it (IDs are per route), a court case number on all of them.
  */
 export const OpenById: React.FC<{ onGo?: () => void; initialKind?: FindKind }> = ({ onGo, initialKind = "request" }) => {
   const nav = useNavigate();
-  const { data } = useSetup();
+  const { routes, route, neutral } = useSetup();
   const group = useId();
   const [kind, setKind] = useState<FindKind>(initialKind);
+  // the networks a request ID can be opened on: the set-up routes, starting on the page's own
+  const networks = routes.length > 1 ? routes.filter((r) => r.missing.length === 0) : [];
+  const [networkId, setNetworkId] = useState(() => (!neutral && networks.some((r) => r.id === route.id) ? route.id : (networks[0]?.id ?? route.id)));
+  const network = routes.find((r) => r.id === networkId) ?? route;
   const [v, setV] = useState("");
   const [lookup, setLookup] = useState<CaseState>({ kind: "idle" });
   // the latest lookup: a newer one, an edit or leaving the page makes an older answer obsolete
@@ -151,11 +157,11 @@ export const OpenById: React.FC<{ onGo?: () => void; initialKind?: FindKind }> =
       return;
     }
     setLookup({ kind: "busy" });
-    const r = await lookupCase(data, caseId);
+    const r = await lookupCaseAcrossRoutes(routes.map(routeSource), caseId);
     if (n !== seq.current) return;
     if (r.kind === "found") {
       setLookup({ kind: "idle" });
-      nav(`/track/${r.requestId.toString()}`);
+      nav(trackPath(routes.find((x) => x.id === r.routeId) ?? route, r.requestId));
       onGo?.();
     } else if (r.kind === "missing") setLookup({ kind: "missing", id: caseId.toString() });
     else if (r.kind === "error") setLookup({ kind: "error", id: caseId.toString(), message: r.message });
@@ -194,13 +200,31 @@ export const OpenById: React.FC<{ onGo?: () => void; initialKind?: FindKind }> =
           Court case number
         </label>
       </Kind>
+      {!isCase && networks.length > 1 && (
+        <Kind>
+          <legend className="lbl">Network</legend>
+          {networks.map((r) => (
+            <label key={r.id}>
+              <input
+                type="radio"
+                name={`${group}-network`}
+                value={r.id}
+                checked={network.id === r.id}
+                onChange={() => setNetworkId(r.id)}
+                data-testid={`find-network-${r.id}`}
+              />
+              {r.env.foreign.name}
+            </label>
+          ))}
+        </Kind>
+      )}
       <form
         onSubmit={(e) => {
           e.preventDefault();
           if (!value || invalid || busy) return;
           if (isCase) void openCase();
           else {
-            nav(`/track/${value}`);
+            nav(trackPath(network, value));
             onGo?.();
           }
         }}
