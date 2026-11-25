@@ -9,7 +9,8 @@ import { AGREEMENT_HINT, requestIntro } from "../components/copy";
 import { costBreakdown } from "../components/costModel";
 import { plainError, sendFailure, type SendFailure } from "../components/errors";
 import { Loader } from "../components/Loader";
-import { shortHash } from "../components/format";
+import { formatBalance, shortHash } from "../components/format";
+import { trackPath } from "../components/routing";
 import { costStatus, readBulb, resolveBulbRead, submissionActions, type BulbRead } from "../components/readState";
 import { RouteSection } from "../components/RouteSection";
 import { NetworkDown } from "../components/NetworkDown";
@@ -460,8 +461,11 @@ const thresholdText = (k: number, n: number) => (k > n ? `${k} required · ${n} 
 type Outcome = { ok: SwitchRequest } | { err: SendFailure } | null;
 
 export const RequestPage: React.FC = () => {
-  const { data } = useSetup();
+  const { data, route: routeData } = useSetup();
   const route = useMemo(() => routeConfig(data.chains()), [data]);
+  // the route's gas token (ETH; USDC on Arc), and whether it also takes the USDC token
+  const native = route.from.nativeCurrency;
+  const takesUsdc = data.payTokens().includes("usdc");
   const names = { foreign: route.from.name, home: route.to.name };
   const wallet = useWallet();
   const location = useLocation();
@@ -476,6 +480,7 @@ export const RequestPage: React.FC = () => {
   const [quote, setQuote] = useState<CostQuote | null>(null);
   const [quoteError, setQuoteError] = useState<string | null>(null);
   const [allowance, setAllowance] = useState<bigint | null>(null);
+  const [balance, setBalance] = useState<bigint | null>(null);
   const [bulbStored, setBulbStored] = useState<{
     owner: string;
     read: BulbRead;
@@ -591,11 +596,13 @@ export const RequestPage: React.FC = () => {
   const refreshWalletReads = useCallback(() => {
     if (!wallet.ready || !wallet.address) {
       setAllowance(null);
+      setBalance(null);
       return;
     }
     const owner = wallet.address;
-    data.usdcAllowance(owner).then(setAllowance, () => setAllowance(null));
-  }, [data, wallet.ready, wallet.address]);
+    if (takesUsdc) data.usdcAllowance(owner).then(setAllowance, () => setAllowance(null));
+    data.balance(owner).then(setBalance, () => setBalance(null));
+  }, [data, takesUsdc, wallet.ready, wallet.address]);
   useEffect(refreshWalletReads, [refreshWalletReads]);
 
   // The bulb read belongs to one account: a read for another account is cleared and obsolete responses are ignored.
@@ -898,7 +905,7 @@ export const RequestPage: React.FC = () => {
         <>
           <ListHead aria-hidden="true">
             <span>Oracle</span>
-            <span>Fee ({token === "usdc" ? "USDC" : "ETH"})</span>
+            <span>Fee ({token === "usdc" ? "USDC" : native.symbol})</span>
           </ListHead>
           <OracleList>
             {(oracles ?? []).map((o) => (
@@ -1100,26 +1107,32 @@ export const RequestPage: React.FC = () => {
           <p className="lbl" id="pay-with">
             Pay with
           </p>
-          <Choice role="radiogroup" aria-labelledby="pay-with">
-            <Radio
-              small
-              name="pay"
-              label="ETH"
-              value="native"
-              checked={token === "native"}
-              disabled={frozen}
-              onChange={() => setToken("native")}
-            />
-            <Radio
-              small
-              name="pay"
-              label="USDC"
-              value="usdc"
-              checked={token === "usdc"}
-              disabled={frozen}
-              onChange={() => setToken("usdc")}
-            />
-          </Choice>
+          {takesUsdc ? (
+            <Choice role="radiogroup" aria-labelledby="pay-with">
+              <Radio
+                small
+                name="pay"
+                label={native.symbol}
+                value="native"
+                checked={token === "native"}
+                disabled={frozen}
+                onChange={() => setToken("native")}
+              />
+              <Radio
+                small
+                name="pay"
+                label="USDC"
+                value="usdc"
+                checked={token === "usdc"}
+                disabled={frozen}
+                onChange={() => setToken("usdc")}
+              />
+            </Choice>
+          ) : (
+            <p data-testid="pay-token">
+              {native.symbol}, the gas token of {names.foreign}
+            </p>
+          )}
           {current && breakdown && (
             <>
               <Total>
@@ -1128,7 +1141,15 @@ export const RequestPage: React.FC = () => {
                   {breakdown.total}
                 </span>
               </Total>
-              <Note>Network gas extra, paid in {route.testnet ? "testnet" : "local"} ETH</Note>
+              <Note>
+                Network gas extra, paid in {route.testnet ? "testnet" : "local"} {native.symbol}
+              </Note>
+              {token === "native" && balance !== null && (
+                <Note data-testid="balance">
+                  Your balance: {formatBalance(balance, native.decimals, native.symbol)}
+                  {balance < current.total ? " · less than the request fee" : ""}
+                </Note>
+              )}
               {paymentNote}
             </>
           )}
@@ -1263,7 +1284,7 @@ export const RequestPage: React.FC = () => {
                   flexWrap: "wrap",
                 }}
               >
-                <ButtonLink $primary to={`/track/${done.disputeId}`}>
+                <ButtonLink $primary to={trackPath(routeData, done.disputeId)}>
                   Track request
                 </ButtonLink>
                 <LibButton

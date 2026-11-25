@@ -15,6 +15,12 @@ export function formatAmount(amount: bigint, decimals: number, symbol?: string):
   return formatAmounts([amount], decimals, symbol)[0];
 }
 
+/** A wallet balance, rounded down to `places` decimals (it has many digits; fees are shown exactly). */
+export function formatBalance(amount: bigint, decimals: number, symbol?: string, places = 4): string {
+  const unit = decimals > places ? 10n ** BigInt(decimals - places) : 1n;
+  return formatAmount((amount / unit) * unit, decimals, symbol);
+}
+
 /**
  * Amounts shown together share one number of decimals, the fewest that show every one exactly, so rows that are
  * displayed always add up to a displayed total.
