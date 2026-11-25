@@ -34,6 +34,7 @@ export interface ChainNames {
   foreign: string;
   home: string;
   testnet?: boolean; // a public testnet: no local operator, anyone may have to run a step
+  manualRelay?: boolean; // no relay service runs this route's steps: each is run by someone, from Track
 }
 
 export const NODE_TITLES: Record<NodeKey, string> = {

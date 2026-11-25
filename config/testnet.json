@@ -37,6 +37,7 @@
       "id": "arc",
       "scannerUrl": "",
       "jurorGuide": ["GatewayLightbulb"],
+      "manualRelay": true,
       "foreign": {
         "chainId": 5042002,
         "name": "Arc Testnet",

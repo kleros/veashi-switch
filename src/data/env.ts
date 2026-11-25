@@ -41,6 +41,9 @@ export interface ParsedDevnetEnv {
   // The `addresses.foreign` keys of the lightbulbs whose court template has the answers Track's juror line names
   // ("Switch it on" / "Switch it off"). Default: GatewayLightbulbV2 only.
   jurorGuide: string[];
+  // No relay service carries this route's messages on to the contracts (the Hashi delivery, the case creation, the
+  // ruling's dispatch): someone runs each step, so Track promises no automatic relay. Default false.
+  manualRelay: boolean;
 }
 
 /** The whole config: its routes, the default (first) one first. */
@@ -195,6 +198,12 @@ function parseJurorGuide(value: unknown, key: string, failWith: Fail): string[] 
   return [...new Set(value as string[])];
 }
 
+function parseManualRelay(value: unknown, key: string, failWith: Fail): boolean {
+  if (value === undefined || value === null) return false;
+  if (typeof value !== "boolean") failWith(`"${key}" must be true or false`);
+  return value as boolean;
+}
+
 function parseChain(value: unknown, key: "foreign" | "home"): DevnetChainEnv {
   if (typeof value !== "object" || value === null) fail(`"${key}" is missing`);
   const { chainId, rpcUrl, name, nativeCurrency } = value as Record<string, unknown>;
@@ -299,7 +308,15 @@ interface RouteLabels {
 
 /** One testnet route. A route-level `scannerUrl` (blank: none) replaces the config's for that route. */
 function parseTestnetRoute(
-  raw: { id?: unknown; scannerUrl?: unknown; jurorGuide?: unknown; foreign: unknown; home: unknown; addresses: { foreign: unknown; home: unknown } },
+  raw: {
+    id?: unknown;
+    scannerUrl?: unknown;
+    jurorGuide?: unknown;
+    manualRelay?: unknown;
+    foreign: unknown;
+    home: unknown;
+    addresses: { foreign: unknown; home: unknown };
+  },
   scannerUrl: string | null,
   labels: RouteLabels,
 ): ParsedDevnetEnv {
@@ -323,6 +340,7 @@ function parseTestnetRoute(
     testWallet: false,
     scannerUrl: raw.scannerUrl === undefined ? scannerUrl : parseScannerUrl(raw.scannerUrl, `${at}scannerUrl`),
     jurorGuide: parseJurorGuide(raw.jurorGuide, `${at}jurorGuide`, failTestnet),
+    manualRelay: parseManualRelay(raw.manualRelay, `${at}manualRelay`, failTestnet),
   };
 }
 
@@ -331,7 +349,7 @@ function parseTestnetEnv(raw: Record<string, unknown>): ParsedDevnetEnv {
   const addresses = raw.addresses as Record<string, unknown> | undefined;
   if (typeof addresses !== "object" || addresses === null) failTestnet(`"addresses" is missing`);
   return parseTestnetRoute(
-    { id: raw.id, jurorGuide: raw.jurorGuide, foreign: raw.foreign, home: raw.home, addresses: { foreign: addresses.foreign, home: addresses.home } },
+    { id: raw.id, jurorGuide: raw.jurorGuide, manualRelay: raw.manualRelay, foreign: raw.foreign, home: raw.home, addresses: { foreign: addresses.foreign, home: addresses.home } },
     parseScannerUrl(raw.scannerUrl),
     { at: "", foreignAddresses: "addresses.foreign", homeAddresses: "addresses.home" },
   );
@@ -396,6 +414,7 @@ function parseTestnetRoutes(raw: Record<string, unknown>): ParsedNetworkEnv {
         id: r.id,
         scannerUrl: r.scannerUrl,
         jurorGuide: r.jurorGuide,
+        manualRelay: r.manualRelay,
         foreign: foreign.chain,
         home: home.chain,
         addresses: { foreign: foreign.addresses, home: home.addresses },
@@ -433,6 +452,7 @@ export function parseDevnetEnv(json: unknown): ParsedDevnetEnv {
     testWallet: raw.testWallet === true,
     scannerUrl: null, // local chains: the scanner cannot see them
     jurorGuide: parseJurorGuide(raw.jurorGuide, "jurorGuide", fail),
+    manualRelay: parseManualRelay(raw.manualRelay, "manualRelay", fail),
   };
 }
 

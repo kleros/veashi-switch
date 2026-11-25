@@ -47,6 +47,7 @@ export interface DevnetEnv {
   testWallet: boolean; // true when the app may offer the dev-account test connector (devnet only)
   scannerUrl: string | null; // Veashi Scanner base URL, testnet only; null hides the scanner links
   jurorGuide?: string[]; // the lightbulb keys whose requests get Track's juror line
+  manualRelay?: boolean; // no relay service runs this route's delivery steps: Track promises none
 }
 
 /** The whole config: every route, the default (first) one first. */

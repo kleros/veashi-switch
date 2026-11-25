@@ -183,6 +183,20 @@ describe("default-view copy", () => {
     }
   });
 
+  it("promises no automatic relay on a route no relay service runs (Arc), and points to the step on the page", () => {
+    const arcNames = { foreign: "Arc Testnet", home: "Arbitrum Sepolia", testnet: true, manualRelay: true };
+    const all = [...STAGES.map((stage) => req(stage)), ...variants(TESTNET_BLOCKER)];
+    for (const r of [...all, { ...req("dispute-relaying"), actions: ["deliver" as const] }, { ...req("ruling-relaying"), actions: ["deliver-back" as const] }]) {
+      const n = nowModel(r, oracles, arcNames, { canSimulate: false });
+      for (const text of Object.values(n).filter((v): v is string => typeof v === "string")) expect(text, `${r.stage}: ${text}`).not.toMatch(/automatic/i);
+    }
+    const delivering = nowModel({ ...req("dispute-relaying"), actions: ["deliver"] }, oracles, arcNames, { canSimulate: false });
+    expect(delivering.next).toBe("Delivery on Arbitrum Sepolia: Anyone can run it from this page");
+    // the Base route (a relay service may run there) keeps its wording
+    const base = nowModel({ ...req("dispute-relaying"), actions: ["deliver"] }, oracles, testnetNames, { canSimulate: false });
+    expect(base.next).toBe("Delivery on Arbitrum Sepolia: Anyone, or an automatic relay service");
+  });
+
   it("words the testnet build without the local devnet, its operator or local ETH", () => {
     const testnetText = [
       requestIntro("testnet"),

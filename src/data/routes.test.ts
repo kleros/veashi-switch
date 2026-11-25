@@ -112,6 +112,7 @@ describe("a config with several routes", () => {
       ["USDC with 6 decimals as the gas token", (j) => void (j.routes[1].foreign.nativeCurrency.decimals = 6), /not the chain's gas token/],
       ["a bad logRange", (j) => void (j.routes[1].foreign.logRange = -1), /logRange/],
       ["a bad jurorGuide", (j) => void ((j.routes[1] as Record<string, unknown>).jurorGuide = "GatewayLightbulb"), /jurorGuide/],
+      ["a bad manualRelay", (j) => void ((j.routes[1] as Record<string, unknown>).manualRelay = "yes"), /routes\[1\]\.manualRelay.*true or false/],
       ["a bad route scannerUrl", (j) => void ((j.routes[1] as Record<string, unknown>).scannerUrl = "http://x.example"), /routes\[1\]\.scannerUrl.*https/],
       ["top-level addresses next to routes", (j) => void ((j as Record<string, unknown>).addresses = {}), /"addresses" belongs inside each route/],
     ];
@@ -231,6 +232,8 @@ describe("the shipped config/testnet.json", () => {
     expect(arc.foreign).toMatchObject({ fromBlock: 74009682n, logRange: 10000n, nativeCurrency: { symbol: "USDC", decimals: 18 } });
     expect(arc.scannerUrl).toBeNull();
     expect(isJurorGuidedLightbulb(arc.addresses.foreign, arc.addresses.foreign.GatewayLightbulb, arc.jurorGuide)).toBe(true);
+    // no relay service runs the Arc route's steps (yet): Track promises none there
+    expect([base.manualRelay, arc.manualRelay]).toEqual([false, true]);
     expect(fetch).not.toHaveBeenCalled();
   });
 
